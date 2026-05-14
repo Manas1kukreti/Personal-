@@ -85,7 +85,7 @@ button, input, textarea {
   @apply border-amber-200 bg-amber-50 text-warning;
 }
 
-.status-rejected {
+.status-declined {
   @apply border-red-200 bg-red-50 text-danger;
 }
 

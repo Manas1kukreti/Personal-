@@ -34,7 +34,7 @@ export default function Dashboard() {
     day: new Date(item.day).toLocaleDateString(),
     uploads: item.uploads,
     approved: Math.max(0, Math.round(item.uploads * 0.78)),
-    rejected: Math.max(0, Math.round(item.uploads * 0.12))
+    declined: Math.max(0, Math.round(item.uploads * 0.12))
   })) || [];
   const recentUploads = data?.recent_uploads || [];
   const transactions = data?.last_transactions || [];
@@ -101,7 +101,7 @@ export default function Dashboard() {
                 <option value="">All statuses</option>
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
+                <option value="declined">Declined</option>
                 <option value="reupload_requested">Re-upload requested</option>
               </select>
             </label>
@@ -146,7 +146,7 @@ export default function Dashboard() {
             <div className="flex gap-4 text-xs font-semibold text-muted">
               <Legend color="bg-accent" label="Uploads" />
               <Legend color="bg-success" label="Approved" />
-              <Legend color="bg-danger" label="Rejected" />
+              <Legend color="bg-danger" label="Declined" />
             </div>
           </div>
           <div className="mt-4 h-80">
@@ -168,7 +168,7 @@ export default function Dashboard() {
                 <Tooltip contentStyle={{ borderRadius: 8, borderColor: "#d9e2ec" }} />
                 <Area type="monotone" dataKey="uploads" stroke="#2563eb" fill="url(#uploadFill)" strokeWidth={2} />
                 <Area type="monotone" dataKey="approved" stroke="#059669" fill="url(#approvedFill)" strokeWidth={2} />
-                <Area type="monotone" dataKey="rejected" stroke="#dc2626" fill="none" strokeDasharray="4 4" strokeWidth={2} />
+                <Area type="monotone" dataKey="declined" stroke="#dc2626" fill="none" strokeDasharray="4 4" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </div>

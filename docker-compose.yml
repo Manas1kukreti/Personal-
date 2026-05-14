@@ -10,7 +10,6 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U excelflow -d excelflow"]
       interval: 10s
@@ -21,6 +20,8 @@ services:
     build:
       context: ./backend
     container_name: excelflow-backend
+    env_file:
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://excelflow:excelflow@postgres:5432/excelflow
       APP_NAME: ExcelFlow Analytics API

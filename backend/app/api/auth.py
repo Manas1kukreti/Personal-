@@ -10,7 +10,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def user_to_schema(user: User) -> UserRead:
-    return UserRead(id=user.id, name=user.name, email=user.email, role=user.role.value)
+    return UserRead(
+        id=user.id,
+        name=user.full_name,
+        email=user.email,
+        role=user.role.value,
+        manager_id=user.manager_id,
+        manager_name=user.manager.full_name if user.manager else None,
+    )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -20,7 +27,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=409, detail="A user with this email already exists")
 
     user = User(
-        name=payload.name.strip(),
+        full_name=payload.name.strip(),
         email=payload.email.lower(),
         hashed_password=hash_password(payload.password),
         role=UserRole(payload.role),

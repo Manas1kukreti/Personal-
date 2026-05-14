@@ -23,6 +23,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const requestUrl = error.config?.url || "";
+    const isLoginAttempt = requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register");
+    const isAuthError = error.response?.status === 401 && !isLoginAttempt;
+
+    if (isAuthError) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export function websocketUrl(channel) {
   const url = new URL(API_BASE_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

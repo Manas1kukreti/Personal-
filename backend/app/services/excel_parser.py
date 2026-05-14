@@ -11,7 +11,6 @@ REQUIRED_FINANCIAL_COLUMNS = {
     "transaction_id": "string",
     "transaction_date": "date",
     "amount": "number",
-    "currency": "string",
     "transaction_type": "string",
     "merchant_name": "string",
     "invoice_id": "string",
@@ -22,6 +21,7 @@ OPTIONAL_FINANCIAL_COLUMNS: dict[str, str] = {}
 
 VALID_TRANSACTION_TYPES = {"payment", "debit", "credit", "refund", "transfer"}
 VALID_PAYMENT_STATUSES = {"initiated", "pending", "failed", "successful"}
+VALID_PAYMENT_METHODS = {"neft", "upi", "creditcard", "debitcard", "netbanking"}
 
 
 def validate_extension(filename: str) -> str:
@@ -139,6 +139,14 @@ def validate_financial_schema(frame: pd.DataFrame) -> dict[str, Any]:
             for index in series[invalid_status].index[:25]
         )
 
+    if "payment_method" in normalized_columns:
+        series = frame[normalized_columns["payment_method"]]
+        invalid_method = series.notna() & ~series.astype(str).map(normalize_enum_text).isin(VALID_PAYMENT_METHODS)
+        row_errors.extend(
+            {"row": int(index) + 2, "field": "payment_method", "message": "Must be NEFT, UPI, Credit Card, Debit Card, or Net Banking"}
+            for index in series[invalid_method].index[:25]
+        )
+
     return {
         "schema": "financial_transactions",
         "required_columns": REQUIRED_FINANCIAL_COLUMNS,
@@ -157,6 +165,10 @@ def normalize_cell(value: Any) -> Any:
     if isinstance(value, (int, float, str, bool)):
         return value
     return str(value)
+
+
+def normalize_enum_text(value: str) -> str:
+    return "".join(character for character in value.lower() if character.isalnum())
 
 
 def infer_amount(payload: dict) -> float | None:

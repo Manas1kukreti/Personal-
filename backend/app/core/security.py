@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -50,9 +51,11 @@ async def get_current_user(
     except (JWTError, ValueError, TypeError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bearer token") from exc
 
-    user = await db.get(User, user_id)
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is inactive or missing")
+    user = (
+        await db.execute(select(User).options(selectinload(User.manager)).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is missing")
     return user
 
 
@@ -75,4 +78,6 @@ def require_roles(*roles: UserRole):
 
 
 async def find_user_by_email(db: AsyncSession, email: str) -> User | None:
-    return (await db.execute(select(User).where(User.email == email.lower()))).scalar_one_or_none()
+    return (
+        await db.execute(select(User).options(selectinload(User.manager)).where(User.email == email.lower()))
+    ).scalar_one_or_none()

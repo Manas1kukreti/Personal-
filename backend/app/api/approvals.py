@@ -1,18 +1,27 @@
-from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.security import require_roles
 from app.db.session import get_db
-from app.models import ApprovedTransaction, KpiSnapshot, ManagerComment, PendingUploadRow, Upload, UploadStatus, User, UserRole
-from app.schemas import ApprovalRequest, RejectRequest, ReuploadRequest
-from app.services.excel_parser import infer_amount, infer_date, infer_number, infer_text
+from app.models import Review, ReviewAction, ReviewStatus, Submission, User, UserRole
+from app.schemas import ApprovalActionRequest, ApprovalRequest, RejectActionRequest, RejectRequest, ReuploadActionRequest, ReuploadRequest
+from app.services.email import send_email
 from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
+
+
+@router.post("/approve")
+async def approve_upload_by_body(
+    request: ApprovalActionRequest,
+    db: AsyncSession = Depends(get_db),
+    manager: User = Depends(require_roles(UserRole.manager)),
+) -> dict:
+    return await create_review(request.upload_id, ReviewAction.approved, request.comment, db, manager)
 
 
 @router.post("/{upload_id}/approve")
@@ -20,74 +29,18 @@ async def approve_upload(
     upload_id: UUID,
     request: ApprovalRequest,
     db: AsyncSession = Depends(get_db),
-    manager: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    manager: User = Depends(require_roles(UserRole.manager)),
 ) -> dict:
-    upload = await db.get(Upload, upload_id)
-    if not upload:
-        raise HTTPException(status_code=404, detail="Upload not found")
-    if upload.status != UploadStatus.pending:
-        raise HTTPException(status_code=409, detail=f"Upload is already {upload.status.value}")
+    return await create_review(upload_id, ReviewAction.approved, request.comment, db, manager)
 
-    rows = (await db.execute(select(PendingUploadRow).where(PendingUploadRow.upload_id == upload_id))).scalars().all()
-    transactions = []
-    approved_amount = 0.0
-    cash_collected = 0.0
-    for row in rows:
-        target_value = infer_number(row.payload, "target_value")
-        actual_value = infer_number(row.payload, "actual_value")
-        attainment_pct = (actual_value / target_value * 100) if target_value else None
-        amount = infer_amount(row.payload)
-        approved_amount += float(amount or 0)
-        if str(row.payload.get("status", "")).strip().lower() == "successful":
-            cash_collected += float(amount or 0)
-        transactions.append(
-            ApprovedTransaction(
-                upload_id=upload.id,
-                row_index=row.row_index,
-                payload=row.payload,
-                amount=amount,
-                department=infer_text(row.payload, "department"),
-                employee_name=infer_text(row.payload, "employee_name"),
-                kpi_name=infer_text(row.payload, "kpi_name"),
-                target_value=target_value,
-                actual_value=actual_value,
-                attainment_pct=attainment_pct,
-                transaction_date=infer_date(row.payload, "transaction_date"),
-            )
-        )
-    db.add_all(transactions)
-    upload.status = UploadStatus.approved
-    upload.approved_by_id = manager.id
-    upload.reviewed_at = datetime.now(UTC)
-    db.add(ManagerComment(upload_id=upload.id, manager_id=manager.id, decision="approved", comment=request.comment))
-    db.add_all(
-        [
-            KpiSnapshot(
-                metric_name="approved_upload_rows",
-                metric_value=len(rows),
-                metadata_json={"upload_id": str(upload.id), "filename": upload.filename, "manager_id": str(manager.id)},
-            ),
-            KpiSnapshot(
-                metric_name="approved_amount",
-                metric_value=approved_amount,
-                metadata_json={"upload_id": str(upload.id), "filename": upload.filename, "manager_id": str(manager.id)},
-            ),
-            KpiSnapshot(
-                metric_name="cash_collected",
-                metric_value=cash_collected,
-                metadata_json={"upload_id": str(upload.id), "filename": upload.filename, "manager_id": str(manager.id)},
-            ),
-        ]
-    )
-    await db.commit()
 
-    payload = {"upload_id": upload.id, "status": upload.status.value, "filename": upload.filename}
-    await ws_manager.broadcast("uploads", "upload_status", payload)
-    await ws_manager.broadcast("uploads", "approval.decision", payload)
-    await ws_manager.broadcast("manager", "upload_reviewed", payload)
-    await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
-    await ws_manager.broadcast("dashboard", "kpi.update", payload)
-    return {"message": "Upload approved", **payload}
+@router.post("/reject")
+async def reject_upload_by_body(
+    request: RejectActionRequest,
+    db: AsyncSession = Depends(get_db),
+    manager: User = Depends(require_roles(UserRole.manager)),
+) -> dict:
+    return await create_review(request.upload_id, ReviewAction.declined, request.comment, db, manager)
 
 
 @router.post("/{upload_id}/reject")
@@ -95,26 +48,18 @@ async def reject_upload(
     upload_id: UUID,
     request: RejectRequest,
     db: AsyncSession = Depends(get_db),
-    manager: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    manager: User = Depends(require_roles(UserRole.manager)),
 ) -> dict:
-    upload = await db.get(Upload, upload_id)
-    if not upload:
-        raise HTTPException(status_code=404, detail="Upload not found")
-    if upload.status != UploadStatus.pending:
-        raise HTTPException(status_code=409, detail=f"Upload is already {upload.status.value}")
+    return await create_review(upload_id, ReviewAction.declined, request.comment, db, manager)
 
-    upload.status = UploadStatus.rejected
-    upload.approved_by_id = manager.id
-    upload.reviewed_at = datetime.now(UTC)
-    db.add(ManagerComment(upload_id=upload.id, manager_id=manager.id, decision="rejected", comment=request.comment))
-    await db.commit()
 
-    payload = {"upload_id": upload.id, "status": upload.status.value, "filename": upload.filename}
-    await ws_manager.broadcast("uploads", "upload_status", payload)
-    await ws_manager.broadcast("uploads", "approval.decision", payload)
-    await ws_manager.broadcast("manager", "upload_reviewed", payload)
-    await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
-    return {"message": "Upload rejected", **payload}
+@router.post("/request-reupload")
+async def request_reupload_by_body(
+    request: ReuploadActionRequest,
+    db: AsyncSession = Depends(get_db),
+    manager: User = Depends(require_roles(UserRole.manager)),
+) -> dict:
+    return await create_review(request.upload_id, ReviewAction.reupload_requested, request.comment, db, manager)
 
 
 @router.post("/{upload_id}/request-reupload")
@@ -122,23 +67,50 @@ async def request_reupload(
     upload_id: UUID,
     request: ReuploadRequest,
     db: AsyncSession = Depends(get_db),
-    manager: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    manager: User = Depends(require_roles(UserRole.manager)),
 ) -> dict:
-    upload = await db.get(Upload, upload_id)
-    if not upload:
-        raise HTTPException(status_code=404, detail="Upload not found")
-    if upload.status != UploadStatus.pending:
-        raise HTTPException(status_code=409, detail=f"Upload is already {upload.status.value}")
+    return await create_review(upload_id, ReviewAction.reupload_requested, request.comment, db, manager)
 
-    upload.status = UploadStatus.reupload_requested
-    upload.approved_by_id = manager.id
-    upload.reviewed_at = datetime.now(UTC)
-    db.add(ManagerComment(upload_id=upload.id, manager_id=manager.id, decision="reupload_requested", comment=request.comment))
+
+async def create_review(
+    submission_id: UUID,
+    action: ReviewAction,
+    comment: str | None,
+    db: AsyncSession,
+    manager: User,
+) -> dict:
+    submission = (
+        await db.execute(select(Submission).options(selectinload(Submission.user)).where(Submission.id == submission_id))
+    ).scalar_one_or_none()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if not submission.user or submission.user.manager_id != manager.id:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if submission.review_status != ReviewStatus.pending:
+        raise HTTPException(status_code=409, detail=f"Submission is already {submission.review_status.value}")
+    if action != ReviewAction.approved and not comment:
+        raise HTTPException(status_code=422, detail="Comment is required for declined or reupload_requested reviews")
+
+    submission.review_status = ReviewStatus(action.value)
+    db.add(Review(submission_id=submission.id, manager_id=manager.id, action=action, comment=comment))
     await db.commit()
 
-    payload = {"upload_id": upload.id, "status": upload.status.value, "filename": upload.filename, "comment": request.comment}
+    payload = {"upload_id": submission.id, "status": submission.review_status.value, "filename": submission.file_name}
+    if comment:
+        payload["comment"] = comment
     await ws_manager.broadcast("uploads", "upload_status", payload)
     await ws_manager.broadcast("uploads", "approval.decision", payload)
     await ws_manager.broadcast("manager", "upload_reviewed", payload)
     await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
-    return {"message": "Re-upload requested", **payload}
+    await ws_manager.broadcast("dashboard", "kpi.update", payload)
+    comment_line = f"\n\nManager comment: {comment}" if comment else ""
+    await send_email(
+        submission.user.email,
+        f"Upload {submission.review_status.value}",
+        (
+            f"Hello {submission.user.full_name},\n\n"
+            f"Your upload {submission.file_name} was marked {submission.review_status.value}."
+            f"{comment_line}"
+        ),
+    )
+    return {"message": f"Submission {submission.review_status.value}", **payload}

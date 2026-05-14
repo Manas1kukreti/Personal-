@@ -1,15 +1,19 @@
 import React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { FiCheck, FiChevronRight, FiClock, FiMessageSquare, FiRefreshCw, FiRotateCcw, FiX } from "react-icons/fi";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import DataTable from "../components/DataTable.jsx";
+import ProgressMilestones from "../components/ProgressMilestones.jsx";
 import { useWebSocket } from "../hooks/useWebSocket.js";
 
 export default function ManagerDashboard() {
+  const [searchParams] = useSearchParams();
   const [uploads, setUploads] = useState([]);
   const [selected, setSelected] = useState(null);
   const [comment, setComment] = useState("");
   const [acting, setActing] = useState("");
+  const [openedDeepLink, setOpenedDeepLink] = useState("");
 
   const loadQueue = useCallback(async () => {
     const response = await api.get("/uploads");
@@ -19,6 +23,20 @@ export default function ManagerDashboard() {
   useEffect(() => {
     loadQueue();
   }, [loadQueue]);
+
+  useEffect(() => {
+    const submissionId = searchParams.get("submission_id");
+    if (!submissionId || openedDeepLink === submissionId) return;
+
+    async function openDeepLink() {
+      const response = await api.get(`/uploads/${submissionId}`);
+      setSelected(response.data);
+      setComment("");
+      setOpenedDeepLink(submissionId);
+    }
+
+    openDeepLink().catch(() => setOpenedDeepLink(submissionId));
+  }, [openedDeepLink, searchParams]);
 
   useWebSocket("manager", useCallback((event) => {
     if (["new_upload", "upload.new", "upload_reviewed", "approval.decision"].includes(event.event)) loadQueue();
@@ -46,7 +64,7 @@ export default function ManagerDashboard() {
 
   const pending = uploads.filter((upload) => upload.status === "pending").length;
   const approved = uploads.filter((upload) => upload.status === "approved").length;
-  const rejected = uploads.filter((upload) => upload.status === "rejected").length;
+  const declined = uploads.filter((upload) => upload.status === "declined").length;
 
   return (
     <div className="space-y-5">
@@ -61,7 +79,7 @@ export default function ManagerDashboard() {
       <section className="grid gap-4 md:grid-cols-4">
         <Stat label="Pending Review" value={pending} tone="text-warning" />
         <Stat label="Approved" value={approved} tone="text-success" />
-        <Stat label="Rejected" value={rejected} tone="text-danger" />
+        <Stat label="Declined" value={declined} tone="text-danger" />
         <Stat label="Total Processed" value={uploads.length} tone="text-accent" />
       </section>
 
@@ -114,6 +132,7 @@ export default function ManagerDashboard() {
                   <Tile label="Rows" value={selected.total_rows} />
                   <Tile label="Status" value={selected.status} />
                 </div>
+                <ProgressMilestones status={selected.status} createdAt={selected.created_at} reviewedAt={selected.reviewed_at} />
                 <div>
                   <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Extracted Columns</div>
                   <div className="flex flex-wrap gap-2">

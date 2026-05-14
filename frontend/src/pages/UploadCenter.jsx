@@ -1,8 +1,9 @@
 import React from "react";
-import { useCallback, useMemo, useState } from "react";
-import { FiAlertCircle, FiCheckCircle, FiFileText, FiRefreshCw, FiUploadCloud } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiAlertCircle, FiCheckCircle, FiClock, FiFileText, FiRefreshCw, FiUploadCloud } from "react-icons/fi";
 import { api } from "../api/client.js";
 import DataTable from "../components/DataTable.jsx";
+import ProgressMilestones from "../components/ProgressMilestones.jsx";
 import { useWebSocket } from "../hooks/useWebSocket.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -14,6 +15,16 @@ export default function UploadCenter() {
   const [message, setMessage] = useState("");
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState("");
+  const [uploads, setUploads] = useState([]);
+
+  const loadUploads = useCallback(async () => {
+    const response = await api.get("/uploads");
+    setUploads(response.data);
+  }, []);
+
+  useEffect(() => {
+    loadUploads();
+  }, [loadUploads]);
 
   useWebSocket("uploads", useCallback((event) => {
     if (event.event === "upload_progress" || event.event === "upload.progress") {
@@ -23,7 +34,10 @@ export default function UploadCenter() {
     if (event.event === "upload_status" || event.event === "approval.decision") {
       setMessage(`Upload ${event.payload.status}`);
     }
-  }, []));
+    if (["upload.complete", "approval.decision", "upload_status"].includes(event.event)) {
+      loadUploads();
+    }
+  }, [loadUploads]));
 
   const isValid = useMemo(() => file && [".xlsx", ".csv"].some((ext) => file.name.toLowerCase().endsWith(ext)), [file]);
   const isTooLarge = file && file.size > MAX_FILE_SIZE;
@@ -40,6 +54,7 @@ export default function UploadCenter() {
       setPreview(response.data);
       setProgress(100);
       setMessage("Preview generated and sent to manager queue");
+      await loadUploads();
     } catch (err) {
       setProgress(0);
       setError(err.response?.data?.detail || "Upload failed. Please check the file and try again.");
@@ -155,6 +170,7 @@ export default function UploadCenter() {
               <Metric label="Status" value={preview.status} />
                 <Metric label="Schema" value={preview.validation?.valid === false ? "Review" : "Valid"} />
               </div>
+              <ProgressMilestones status={preview.status} createdAt={preview.created_at} reviewedAt={preview.reviewed_at} />
               <div className="border border-line bg-slate-50 p-3" style={{ borderRadius: 8 }}>
                 <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Detected Types</div>
                 <div className="flex flex-wrap gap-2">
@@ -172,6 +188,41 @@ export default function UploadCenter() {
           ) : (
             <div className="flex min-h-64 items-center justify-center border border-line bg-slate-50 text-sm text-muted" style={{ borderRadius: 8 }}>
               No preview yet
+            </div>
+          )}
+        </div>
+      </section>
+      <section className="elevated-panel overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-5">
+          <div>
+            <h2 className="text-base font-bold text-ink">Progress</h2>
+            <p className="text-sm text-muted">Your submissions move from upload to manager decision.</p>
+          </div>
+          <button className="icon-button" onClick={loadUploads} title="Refresh progress"><FiRefreshCw /></button>
+        </div>
+        <div className="divide-y divide-line">
+          {uploads.map((upload) => (
+            <div key={upload.id} className="p-5">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="mono truncate text-xs font-bold text-accent">{upload.filename}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                    <span>{upload.total_rows} rows</span>
+                    <span className="text-slate-300">/</span>
+                    <span className="inline-flex items-center gap-1"><FiClock /> {new Date(upload.created_at).toLocaleString()}</span>
+                  </div>
+                </div>
+                <span className={`status-badge status-${upload.status}`}>
+                  <span className="status-dot bg-current" />
+                  {upload.status}
+                </span>
+              </div>
+              <ProgressMilestones status={upload.status} createdAt={upload.created_at} reviewedAt={upload.reviewed_at} />
+            </div>
+          ))}
+          {!uploads.length && (
+            <div className="flex min-h-32 items-center justify-center text-sm text-muted">
+              No submissions yet
             </div>
           )}
         </div>

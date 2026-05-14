@@ -4,7 +4,11 @@ import { useAuth } from "./AuthContext.jsx";
 
 export default function ProtectedRoute({ roles = [] }) {
   const location = useLocation();
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, isCheckingSession, user } = useAuth();
+
+  if (isCheckingSession) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;

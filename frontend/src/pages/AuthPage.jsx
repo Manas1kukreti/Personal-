@@ -15,7 +15,8 @@ export default function AuthPage() {
   const { isAuthenticated, login, register } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const destination = location.state?.from?.pathname || "/dashboard";
+  const requestedDestination = location.state?.from?.pathname;
+  const destination = requestedDestination || "/dashboard";
 
   if (isAuthenticated) return <Navigate to={destination} replace />;
 
@@ -24,12 +25,14 @@ export default function AuthPage() {
     setError("");
     setBusy(true);
     try {
+      let session;
       if (mode === "login") {
-        await login({ email, password });
+        session = await login({ email, password });
       } else {
-        await register({ name, email, password, role });
+        session = await register({ name, email, password, role });
       }
-      navigate(destination, { replace: true });
+      const roleHome = session?.user?.role === "admin" ? "/admin" : session?.user?.role === "manager" ? "/manager" : "/dashboard";
+      navigate(requestedDestination || roleHome, { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || "Authentication failed. Check your details and try again.");
     } finally {
@@ -94,7 +97,6 @@ export default function AuthPage() {
                 <select className="form-input" value={role} onChange={(event) => setRole(event.target.value)}>
                   <option value="employee">Employee</option>
                   <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
                 </select>
               </label>
             )}
