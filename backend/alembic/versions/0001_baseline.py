@@ -21,12 +21,12 @@ def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
     if inspect(op.get_bind()).has_table("users"):
         return
-    user_role = postgresql.ENUM("employee", "manager", name="user_role")
-    review_status = postgresql.ENUM("pending", "approved", "declined", "reupload_requested", name="review_status")
-    review_action = postgresql.ENUM("approved", "declined", "reupload_requested", name="review_action")
-    transaction_type = postgresql.ENUM("Payment", "Debit", "Credit", "Transfer", "Refund", name="transaction_type")
-    payment_method = postgresql.ENUM("NEFT", "UPI", "Credit Card", "Debit Card", "Net Banking", name="payment_method")
-    transaction_status = postgresql.ENUM("Initiated", "Pending", "Successful", "Failed", name="transaction_status")
+    user_role = postgresql.ENUM("employee", "manager", name="user_role", create_type=False)
+    review_status = postgresql.ENUM("pending", "approved", "declined", "reupload_requested", name="review_status", create_type=False)
+    review_action = postgresql.ENUM("approved", "declined", "reupload_requested", name="review_action", create_type=False)
+    transaction_type = postgresql.ENUM("Payment", "Debit", "Credit", "Transfer", "Refund", name="transaction_type", create_type=False)
+    payment_method = postgresql.ENUM("NEFT", "UPI", "Credit Card", "Debit Card", "Net Banking", name="payment_method", create_type=False)
+    transaction_status = postgresql.ENUM("Initiated", "Pending", "Successful", "Failed", name="transaction_status", create_type=False)
 
     user_role.create(op.get_bind(), checkfirst=True)
     review_status.create(op.get_bind(), checkfirst=True)
