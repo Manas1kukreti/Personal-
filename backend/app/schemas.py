@@ -44,6 +44,11 @@ class TokenResponse(BaseModel):
     user: UserRead
 
 
+class AgentTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 class UploadPreview(BaseModel):
     upload_id: UUID
     filename: str

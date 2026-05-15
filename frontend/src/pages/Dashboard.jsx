@@ -73,7 +73,7 @@ export default function Dashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `excelflow-dashboard-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `ledgerflow-dashboard-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }

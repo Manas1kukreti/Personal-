@@ -1,8 +1,8 @@
-# ExcelFlow Analytics Architecture
+# LedgerFlow Analytics Architecture
 
 ## Current System Overview
 
-ExcelFlow Analytics is a full-stack financial transaction upload, validation, approval, and analytics platform.
+LedgerFlow Analytics is a full-stack financial transaction upload, validation, approval, and analytics platform.
 
 The current project is built around three main application layers:
 
@@ -64,7 +64,7 @@ Flow:
 
 1. A user registers through `POST /api/auth/register` or logs in through `POST /api/auth/login`.
 2. The backend validates credentials and returns an access token plus user profile.
-3. The React `AuthContext` stores the session under `excelflow_auth` in `localStorage`.
+3. The React `AuthContext` stores the session under `ledgerflow_auth` in `localStorage`.
 4. The Axios client adds `Authorization: Bearer <token>` to API requests.
 5. On app load, `GET /api/auth/me` validates the stored token and refreshes the user context.
 6. If the API returns an unexpected `401`, the frontend clears the session and redirects to `/login`.

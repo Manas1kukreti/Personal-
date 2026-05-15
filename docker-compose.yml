@@ -1,17 +1,17 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: excelflow-postgres
+    container_name: ledgerflow-postgres
     environment:
-      POSTGRES_DB: excelflow
-      POSTGRES_USER: excelflow
-      POSTGRES_PASSWORD: excelflow
+      POSTGRES_DB: ledgerflow
+      POSTGRES_USER: ledgerflow
+      POSTGRES_PASSWORD: ledgerflow
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U excelflow -d excelflow"]
+      test: ["CMD-SHELL", "pg_isready -U ledgerflow -d ledgerflow"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -19,12 +19,12 @@ services:
   backend:
     build:
       context: ./backend
-    container_name: excelflow-backend
+    container_name: ledgerflow-backend
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://excelflow:excelflow@postgres:5432/excelflow
-      APP_NAME: ExcelFlow Analytics API
+      DATABASE_URL: postgresql+asyncpg://ledgerflow:ledgerflow@postgres:5432/ledgerflow
+      APP_NAME: LedgerFlow Analytics API
       UPLOAD_DIR: /app/storage/uploads
       MAX_PREVIEW_ROWS: 50
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
@@ -42,7 +42,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: http://localhost:8000
-    container_name: excelflow-frontend
+    container_name: ledgerflow-frontend
     ports:
       - "5173:80"
     depends_on:

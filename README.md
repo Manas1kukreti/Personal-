@@ -1,4 +1,4 @@
-# ExcelFlow Analytics
+# LedgerFlow Analytics
 
 Modern enterprise-grade Excel analytics and manager approval platform.
 

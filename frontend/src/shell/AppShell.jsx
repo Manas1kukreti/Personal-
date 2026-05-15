@@ -60,7 +60,7 @@ export default function AppShell() {
               <FiDatabase />
             </div>
             <div>
-              <div className="text-sm font-bold text-ink">ExcelFlow</div>
+              <div className="text-sm font-bold text-ink">LedgerFlow</div>
               <div className="text-xs text-muted">Analytics Platform</div>
             </div>
           </div>
@@ -94,7 +94,7 @@ export default function AppShell() {
               <FiUsers />
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-bold text-ink">{user?.name || "ExcelFlow User"}</div>
+              <div className="truncate text-sm font-bold text-ink">{user?.name || "LedgerFlow User"}</div>
               <div className="text-xs capitalize text-muted">{user?.role || "user"}</div>
             </div>
           </div>
@@ -105,7 +105,7 @@ export default function AppShell() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
               <FiActivity className="shrink-0" />
-              <span>ExcelFlow</span>
+              <span>LedgerFlow</span>
               <span className="text-slate-300">/</span>
               <span className="truncate font-semibold text-ink">Enterprise data approval workspace</span>
             </div>

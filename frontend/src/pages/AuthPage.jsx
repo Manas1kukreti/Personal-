@@ -48,7 +48,7 @@ export default function AuthPage() {
             <FiBarChart2 />
           </div>
           <div>
-            <div className="text-sm font-bold text-ink">ExcelFlow</div>
+            <div className="text-sm font-bold text-ink">LedgerFlow</div>
             <div className="text-xs text-muted">Analytics Platform</div>
           </div>
         </div>
@@ -64,7 +64,7 @@ export default function AuthPage() {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-bold text-ink">{mode === "login" ? "Sign in" : "Create account"}</h1>
-              <p className="text-sm text-muted">{mode === "login" ? "Use your ExcelFlow account." : "Choose the role you need for this workspace."}</p>
+              <p className="text-sm text-muted">{mode === "login" ? "Use your LedgerFlow account." : "Choose the role you need for this workspace."}</p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center bg-teal-50 text-brand" style={{ borderRadius: 8 }}>
               {mode === "login" ? <FiLogIn /> : <FiUserPlus />}
