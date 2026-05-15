@@ -1,9 +1,12 @@
 from email.message import EmailMessage
+import logging
 import smtplib
 
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 async def send_email(to_email: str | None, subject: str, body: str) -> None:
@@ -25,7 +28,10 @@ async def send_email(to_email: str | None, subject: str, body: str) -> None:
                 smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(message)
 
-    await run_in_threadpool(_send)
+    try:
+        await run_in_threadpool(_send)
+    except Exception:
+        logger.exception("Failed to send email notification to %s", to_email)
 
 
 def manager_submission_link(submission_id) -> str:
