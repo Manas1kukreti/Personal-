@@ -38,6 +38,8 @@ SMTP_TLS=true
 
 The backend listens on Railway's injected `PORT` variable and runs Alembic migrations before starting the API.
 
+If the backend logs mention `localhost:5433`, the backend service is missing the Railway Postgres `DATABASE_URL` variable. Set it on the backend service, not on the Postgres service.
+
 ## Frontend service
 
 Set the service root to `frontend` so Railway uses `frontend/Dockerfile`.
