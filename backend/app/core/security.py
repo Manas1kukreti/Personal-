@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -81,3 +83,14 @@ async def find_user_by_email(db: AsyncSession, email: str) -> User | None:
     return (
         await db.execute(select(User).options(selectinload(User.manager)).where(User.email == email.lower()))
     ).scalar_one_or_none()
+
+def create_refresh_token() -> tuple[str, str]:
+    """Returns (raw_token, hashed_token). Only the hash is stored in the DB."""
+    raw = secrets.token_urlsafe(64)
+    hashed = hashlib.sha256(raw.encode()).hexdigest()
+    return raw, hashed
+
+REFRESH_TOKEN_EXPIRE_DAYS = 30
+
+def hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()

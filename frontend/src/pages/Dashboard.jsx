@@ -79,21 +79,21 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-5">
-      <section className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-5 app-page">
+      <section className="flex flex-wrap items-center justify-between gap-3 animate-slide-in-top">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-ink">Analytics Overview</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-ink">Analytics Overview</h1>
           <p className="text-sm text-muted">Live upload, approval, and KPI activity across the platform.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="secondary-button" onClick={() => setShowFilters((value) => !value)}><FiFilter /> Filter</button>
           <button className="secondary-button" onClick={exportDashboardCsv}><FiDownload /> Export</button>
-          <button className="icon-button" onClick={loadKpis} title="Refresh analytics"><FiRefreshCw /></button>
+          <button className="icon-button transition-all-smooth hover:rotate-180" onClick={loadKpis} title="Refresh analytics"><FiRefreshCw /></button>
         </div>
       </section>
 
       {showFilters && (
-        <section className="elevated-panel p-4">
+        <section className="elevated-panel p-4 animate-slide-in-top">
           <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
             <label className="block">
               <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-muted">Status</span>
@@ -121,23 +121,43 @@ export default function Dashboard() {
       )}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <Kpi icon={FiDatabase} label="Total Uploads" value={totals.uploads || 0} delta={12} tone="blue" />
-        <Kpi icon={FiCheckCircle} label="Approved" value={totals.approved || 0} delta={8} tone="green" />
-        <Kpi icon={FiClock} label="Pending Review" value={totals.pending || 0} delta={0} tone="amber" />
-        <Kpi icon={FiActivity} label="Rows Processed" value={Number(totals.rows || 0).toLocaleString()} delta={6} tone="teal" />
-        <Kpi icon={FiDollarSign} label="Approved Amount" value={formatMoney(totals.approved_amount)} delta={14} tone="indigo" />
-        <Kpi icon={FiCreditCard} label="Cash Collected" value={formatMoney(totals.cash)} delta={14} tone="green" />
+        <div className="animate-stagger-in-1" style={{ animationDelay: "0.1s" }}>
+          <Kpi icon={FiDatabase} label="Total Uploads" value={totals.uploads || 0} delta={12} tone="aqua" />
+        </div>
+        <div className="animate-stagger-in-2" style={{ animationDelay: "0.15s" }}>
+          <Kpi icon={FiCheckCircle} label="Approved" value={totals.approved || 0} delta={8} tone="green" />
+        </div>
+        <div className="animate-stagger-in-3" style={{ animationDelay: "0.2s" }}>
+          <Kpi icon={FiClock} label="Pending Review" value={totals.pending || 0} delta={0} tone="amber" />
+        </div>
+        <div className="animate-stagger-in-4" style={{ animationDelay: "0.25s" }}>
+          <Kpi icon={FiActivity} label="Rows Processed" value={Number(totals.rows || 0).toLocaleString()} delta={6} tone="teal" />
+        </div>
+        <div className="animate-stagger-in-5" style={{ animationDelay: "0.3s" }}>
+          <Kpi icon={FiDollarSign} label="Approved Amount" value={formatMoney(totals.approved_amount)} delta={14} tone="brand" />
+        </div>
+        <div className="animate-fade-in-scale" style={{ animationDelay: "0.35s" }}>
+          <Kpi icon={FiCreditCard} label="Cash Collected" value={formatMoney(totals.cash)} delta={14} tone="green" />
+        </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AmountTile label="Transaction Initiated" value={workflowAmounts.initiated} detail="All uploaded transaction amount" tone="border-blue-200 bg-blue-50/60 text-accent" />
-        <AmountTile label="Pending Amount" value={workflowAmounts.pending} detail="Waiting for manager review" tone="border-amber-200 bg-amber-50/60 text-warning" />
-        <AmountTile label="Approved Amount" value={workflowAmounts.approved} detail="Approved upload transactions" tone="border-emerald-200 bg-emerald-50/60 text-success" />
-        <AmountTile label="Declined Amount" value={workflowAmounts.declined} detail="Rejected upload transactions" tone="border-red-200 bg-red-50/60 text-danger" />
+        <div className="animate-fade-in-scale" style={{ animationDelay: "0.4s" }}>
+          <AmountTile label="Transaction Initiated" value={workflowAmounts.initiated} detail="All uploaded transaction amount" tone="border-[#BFE9DF] bg-[#E7F5F1] text-accent" />
+        </div>
+        <div className="animate-fade-in-scale" style={{ animationDelay: "0.45s" }}>
+          <AmountTile label="Pending Amount" value={workflowAmounts.pending} detail="Waiting for manager review" tone="border-amber-200 bg-amber-50/60 text-warning" />
+        </div>
+        <div className="animate-fade-in-scale" style={{ animationDelay: "0.5s" }}>
+          <AmountTile label="Approved Amount" value={workflowAmounts.approved} detail="Approved upload transactions" tone="border-emerald-200 bg-emerald-50/60 text-success" />
+        </div>
+        <div className="animate-fade-in-scale" style={{ animationDelay: "0.55s" }}>
+          <AmountTile label="Declined Amount" value={workflowAmounts.declined} detail="Rejected upload transactions" tone="border-red-200 bg-red-50/60 text-danger" />
+        </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
-        <div className="elevated-panel p-5">
+        <div className="elevated-panel p-5 animate-fade-in-scale" style={{ animationDelay: "0.6s" }}>
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-ink">Upload Activity</h2>
@@ -154,26 +174,26 @@ export default function Dashboard() {
               <AreaChart data={trend}>
                 <defs>
                   <linearGradient id="uploadFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#3ABFB1" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#3ABFB1" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="approvedFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#059669" stopOpacity={0.16} />
-                    <stop offset="95%" stopColor="#059669" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#155E58" stopOpacity={0.16} />
+                    <stop offset="95%" stopColor="#155E58" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5ebf2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#EDF1EC" vertical={false} />
                 <XAxis dataKey="day" tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                <Tooltip contentStyle={{ borderRadius: 8, borderColor: "#d9e2ec" }} />
-                <Area type="monotone" dataKey="uploads" stroke="#2563eb" fill="url(#uploadFill)" strokeWidth={2} />
-                <Area type="monotone" dataKey="approved" stroke="#059669" fill="url(#approvedFill)" strokeWidth={2} />
-                <Area type="monotone" dataKey="declined" stroke="#dc2626" fill="none" strokeDasharray="4 4" strokeWidth={2} />
+                <Tooltip contentStyle={{ borderRadius: 10, borderColor: "#D9E3DD", background: "#fff" }} />
+                <Area type="monotone" dataKey="uploads" stroke="#3ABFB1" fill="url(#uploadFill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="approved" stroke="#155E58" fill="url(#approvedFill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="declined" stroke="#A33A32" fill="none" strokeDasharray="4 4" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="elevated-panel p-5">
+        <div className="elevated-panel p-5 animate-fade-in-scale" style={{ animationDelay: "0.65s" }}>
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-ink">Recent Uploads</h2>
@@ -182,8 +202,12 @@ export default function Dashboard() {
             <span className="chip">{recentUploads.length} items</span>
           </div>
           <div className="mt-4 space-y-3">
-            {recentUploads.map((upload) => (
-              <div key={upload.id} className="flex items-center justify-between gap-3 border border-line bg-slate-50/60 p-3" style={{ borderRadius: 8 }}>
+            {recentUploads.map((upload, index) => (
+              <div 
+                key={upload.id} 
+                className="flex items-center justify-between gap-3 border border-line bg-surface-alt p-3 transition-all-smooth hover:bg-white hover:shadow-soft" 
+                style={{ borderRadius: 8, animation: `staggerIn 0.4s ease-out ${0.7 + index * 0.05}s both` }}
+              >
                 <div className="min-w-0">
                   <div className="mono truncate text-xs font-semibold text-accent">{upload.filename}</div>
                   <div className="text-xs text-muted">{upload.rows} rows</div>
@@ -197,7 +221,7 @@ export default function Dashboard() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1fr_1.2fr]">
-        <div className="elevated-panel p-5">
+        <div className="elevated-panel p-5 animate-fade-in-scale" style={{ animationDelay: "0.8s" }}>
           <h2 className="text-base font-bold text-ink">Revenue / Transaction Analytics</h2>
           <p className="text-sm text-muted">
             Amount by transaction date from {latestUpload?.filename || "the latest uploaded file"}.
@@ -205,16 +229,16 @@ export default function Dashboard() {
           <div className="mt-5 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={transactionTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5ebf2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#EDF1EC" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip contentStyle={{ borderRadius: 8, borderColor: "#d9e2ec" }} />
-                <Bar dataKey="amount" fill="#0f766e" radius={[6, 6, 0, 0]} />
+                <Tooltip contentStyle={{ borderRadius: 10, borderColor: "#D9E3DD", background: "#fff" }} />
+                <Bar dataKey="amount" fill="#1E8278" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="elevated-panel overflow-hidden">
+        <div className="elevated-panel overflow-hidden animate-fade-in-scale" style={{ animationDelay: "0.85s" }}>
           <div className="flex items-center justify-between border-b border-line p-5">
             <div>
               <h2 className="text-base font-bold text-ink">Last 10 Transactions</h2>
@@ -237,8 +261,12 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {transactions.map((txn) => (
-                  <tr key={`${txn.upload_id}-${txn.row_index}`} className="hover:bg-slate-50">
+                {transactions.map((txn, index) => (
+                  <tr 
+                    key={`${txn.upload_id}-${txn.row_index}`} 
+                    className="hover:bg-slate-50 transition-colors-smooth"
+                    style={{ animation: `staggerIn 0.3s ease-out ${0.9 + index * 0.04}s both` }}
+                  >
                     <td className="mono px-4 py-3 text-xs font-semibold text-accent">{txn.transaction_id || `Row ${txn.row_index}`}</td>
                     <td className="px-4 py-3 text-muted">{formatDate(txn.transaction_date)}</td>
                     <td className="px-4 py-3 text-ink">{txn.customer_name || "-"}</td>
@@ -259,7 +287,7 @@ export default function Dashboard() {
       </section>
 
       {snapshots.length > 0 && (
-        <section className="elevated-panel p-5">
+        <section className="elevated-panel p-5 animate-fade-in-scale" style={{ animationDelay: "0.9s" }}>
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-ink">KPI Snapshots</h2>
@@ -269,7 +297,11 @@ export default function Dashboard() {
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             {snapshots.slice(0, 6).map((snapshot, index) => (
-              <div key={`${snapshot.metric_name}-${snapshot.captured_at}-${index}`} className="border border-line bg-slate-50 p-3" style={{ borderRadius: 8 }}>
+              <div 
+                key={`${snapshot.metric_name}-${snapshot.captured_at}-${index}`} 
+                className="border border-line bg-slate-50 p-3 transition-all-smooth hover:shadow-soft hover:bg-white" 
+                style={{ borderRadius: 8, animation: `staggerIn 0.4s ease-out ${0.95 + index * 0.05}s both` }}
+              >
                 <div className="text-xs font-bold uppercase tracking-wide text-muted">{snapshot.metric_name.replaceAll("_", " ")}</div>
                 <div className="mono mt-2 text-lg font-semibold text-ink">{Number(snapshot.metric_value || 0).toLocaleString()}</div>
                 <div className="mt-1 text-xs text-muted">{new Date(snapshot.captured_at).toLocaleString()}</div>
@@ -289,7 +321,7 @@ function formatDate(value) {
 
 function AmountTile({ label, value, detail, tone }) {
   return (
-    <div className={`border p-4 ${tone}`} style={{ borderRadius: 8 }}>
+    <div className={`border p-4 transition-all-smooth hover:shadow-soft hover:-translate-y-1 ${tone}`} style={{ borderRadius: 8 }}>
       <div className="text-xs font-bold uppercase tracking-wide">{label}</div>
       <div className="mono mt-3 text-xl font-semibold text-ink">INR {Number(value || 0).toLocaleString()}</div>
       <div className="mt-1 text-xs text-muted">{detail}</div>
@@ -299,17 +331,18 @@ function AmountTile({ label, value, detail, tone }) {
 
 function Kpi({ icon: Icon, label, value, delta, tone }) {
   const tones = {
-    blue: "bg-blue-50 text-accent",
-    green: "bg-emerald-50 text-success",
+    aqua: "bg-highlight-bg text-accent",
+    brand: "bg-[#D5F1EA] text-brand",
+    green: "bg-highlight-bg text-success",
     amber: "bg-amber-50 text-warning",
-    teal: "bg-teal-50 text-brand",
-    indigo: "bg-indigo-50 text-indigo-600"
+    teal: "bg-[#D5F1EA] text-brand",
+    indigo: "bg-[#E7F5F1] text-accent"
   };
   return (
-    <div className="elevated-panel p-4">
+    <div className="elevated-panel fintech-card p-4 transition-all-smooth hover:-translate-y-1">
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold uppercase tracking-wide text-muted">{label}</div>
-        <div className={`flex h-9 w-9 items-center justify-center ${tones[tone]}`} style={{ borderRadius: 8 }}>
+        <div className={`flex h-9 w-9 items-center justify-center ${tones[tone]} transition-all-smooth`} style={{ borderRadius: 8 }}>
           <Icon />
         </div>
       </div>
@@ -326,7 +359,7 @@ function Kpi({ icon: Icon, label, value, delta, tone }) {
 
 function StatusBadge({ status }) {
   return (
-    <span className={`status-badge status-${status}`}>
+    <span className={`status-badge status-${status} transition-all-smooth`}>
       <span className="status-dot bg-current" />
       {status}
     </span>

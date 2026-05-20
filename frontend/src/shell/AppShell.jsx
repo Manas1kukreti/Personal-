@@ -1,15 +1,17 @@
 import React from "react";
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { FiActivity, FiBarChart2, FiBell, FiCheckSquare, FiChevronRight, FiDatabase, FiLogOut, FiUploadCloud, FiUserCheck, FiUsers } from "react-icons/fi";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { FiActivity, FiArchive, FiBell, FiCheckSquare, FiChevronRight, FiDatabase, FiLogOut, FiSettings, FiTrendingUp, FiUploadCloud, FiUserCheck, FiUsers } from "react-icons/fi";
 import { api } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard", icon: FiBarChart2 },
-  { to: "/uploads", label: "Uploads", icon: FiUploadCloud },
+  { to: "/dashboard", label: "Analytics", icon: FiTrendingUp },
+  { to: "/uploads", label: "Upload Center", icon: FiUploadCloud },
+  { to: "/submissions", label: "Submissions", icon: FiArchive },
   { to: "/manager", label: "Approvals", icon: FiCheckSquare, roles: ["manager"] },
-  { to: "/admin", label: "Admin", icon: FiUserCheck, roles: ["admin"] }
+  { to: "/admin", label: "Admin", icon: FiUserCheck, roles: ["admin"] },
+  { to: "/settings", label: "Settings", icon: FiSettings }
 ];
 
 export default function AppShell() {
@@ -18,7 +20,10 @@ export default function AppShell() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const visibleNavItems = navItems.filter((item) => !item.roles || item.roles.includes(user?.role));
+  const currentNav = visibleNavItems.find((item) => location.pathname === item.to) || visibleNavItems.find((item) => location.pathname.startsWith(item.to));
+  const initials = (user?.name || "LF").split(" ").map((word) => word[0]).join("").toUpperCase().slice(0, 2);
 
   const loadPendingActions = useCallback(async () => {
     if (!user) {
@@ -53,10 +58,10 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-mist text-ink">
-      <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-line bg-white lg:flex lg:flex-col">
+      <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-line bg-white/90 backdrop-blur-xl lg:flex lg:flex-col">
         <div className="border-b border-line px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center bg-brand text-white" style={{ borderRadius: 8 }}>
+            <div className="flex h-9 w-9 items-center justify-center bg-brand text-white shadow-soft" style={{ borderRadius: 10 }}>
               <FiDatabase />
             </div>
             <div>
@@ -66,7 +71,7 @@ export default function AppShell() {
           </div>
         </div>
         <nav className="flex-1 space-y-1 px-3 py-4">
-          <div className="px-3 pb-2 text-[11px] font-bold uppercase tracking-widest text-slate-400">Navigation</div>
+          <div className="sidebar-section-label">Workspace</div>
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -76,8 +81,8 @@ export default function AppShell() {
                 className={({ isActive }) =>
                   `flex items-center gap-3 border-l-2 px-3 py-2.5 text-sm font-semibold transition ${
                     isActive
-                      ? "border-brand bg-teal-50 text-brand"
-                      : "border-transparent text-muted hover:bg-slate-50 hover:text-ink"
+                      ? "border-brand bg-highlight-bg text-brand shadow-soft"
+                      : "border-transparent text-muted hover:bg-surface-alt hover:text-ink"
                   }`
                 }
                 style={{ borderRadius: 8 }}
@@ -90,7 +95,7 @@ export default function AppShell() {
         </nav>
         <div className="border-t border-line p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-muted">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-highlight-bg text-brand">
               <FiUsers />
             </div>
             <div className="min-w-0">
@@ -101,7 +106,7 @@ export default function AppShell() {
         </div>
       </aside>
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-20 border-b border-line bg-white/95 px-5 py-3 backdrop-blur">
+        <header className="sticky top-0 z-20 border-b border-line bg-white/82 px-5 py-3 shadow-soft backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
               <FiActivity className="shrink-0" />
@@ -110,6 +115,11 @@ export default function AppShell() {
               <span className="truncate font-semibold text-ink">Enterprise data approval workspace</span>
             </div>
             <div className="flex items-center gap-2">
+              <div className="breadcrumbs hidden md:flex">
+                <span>Workspace</span>
+                <FiChevronRight />
+                <strong>{currentNav?.label || "Dashboard"}</strong>
+              </div>
               <div className="chip hidden sm:inline-flex">
                 <span className="status-dot pulse-soft bg-success" />
                 WS Live
@@ -175,13 +185,20 @@ export default function AppShell() {
                   </NavLink>
                 );
               })}
+              <NavLink to="/settings" className="top-user-badge" title="Profile settings">
+                <span className="top-user-avatar">{initials}</span>
+                <span className="top-user-copy">
+                  <strong>{user?.name || "LedgerFlow User"}</strong>
+                  <small>{user?.role || "user"}</small>
+                </span>
+              </NavLink>
               <button className="icon-button" onClick={logout} title="Sign out">
                 <FiLogOut />
               </button>
             </div>
           </div>
         </header>
-        <main className="p-4 sm:p-6">
+        <main className="app-content p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

@@ -2,15 +2,15 @@
 
 ## Current System Overview
 
-LedgerFlow Analytics is a full-stack financial transaction upload, validation, approval, and analytics platform.
+LedgerFlow Analytics is a full-stack financial transaction upload, validation, approval, assignment, and analytics platform.
 
-The current project is built around three main application layers:
+The project is built around three main application layers:
 
-- React SPA: authentication, protected routing, employee upload workflow, KPI dashboard, and manager review dashboard.
-- FastAPI backend: JWT authentication, role-based access control, spreadsheet parsing, validation, review workflow, analytics aggregation, and WebSocket notifications.
-- PostgreSQL database: users, submissions, manager reviews, and normalized transaction rows.
+- React SPA: authentication, protected routing, employee upload workflow, KPI dashboard, manager review dashboard, and admin assignment dashboard.
+- FastAPI backend: JWT authentication, role-based access control, spreadsheet parsing, validation, review workflow, admin assignment, agent upload endpoints, analytics aggregation, optional email notifications, and WebSocket notifications.
+- PostgreSQL database: users, manager assignments, submissions, reviews, and normalized transaction rows.
 
-The active business flow is no longer a generic Excel-to-JSON staging system. The app now expects a financial transaction spreadsheet with a fixed schema and stores each valid row in typed transaction columns.
+The active business flow expects a financial transaction spreadsheet with a fixed schema and stores each valid row in typed transaction columns.
 
 ## Runtime Architecture
 
@@ -24,8 +24,10 @@ Browser
         v
 FastAPI API
   Auth router
+  Agent router
   Upload router
   Approval router
+  Admin router
   Analytics router
   WebSocket router
         |
@@ -46,15 +48,18 @@ Local development can run either as separate services or through Docker Compose:
 
 ## User Roles
 
-The system currently supports two roles:
+The system currently supports three roles:
 
-- `employee`: can register/login, upload financial transaction spreadsheets, list uploads, view upload previews, and view analytics.
-- `manager`: can register/login, view upload previews and analytics, approve submissions, decline submissions, or request reupload with comments.
+- `employee`: can register/login, upload financial transaction spreadsheets, list own uploads, view own upload previews, and view scoped analytics.
+- `manager`: can register/login, view assigned employee uploads and analytics, approve submissions, decline submissions, or request reupload with comments.
+- `admin`: is seeded from environment settings, can list managers, list employees, assign employees to managers, reassign employees, view uploads, and view analytics.
 
 Protected routes are enforced in both layers:
 
-- Frontend: `ProtectedRoute.jsx` redirects unauthenticated users to `/login` and blocks non-managers from `/manager`.
+- Frontend: `ProtectedRoute.jsx` redirects unauthenticated users to `/login`, blocks non-managers from `/manager`, and blocks non-admins from `/admin`.
 - Backend: `require_roles(...)` validates the JWT and checks the user role before protected API actions run.
+
+Manager review access is assignment-scoped. A manager can only list, preview, or review submissions where the uploading employee's `manager_id` equals that manager's user id.
 
 ## Authentication Design
 
@@ -75,6 +80,11 @@ Security implementation:
 - JWTs are signed with `HS256`.
 - Token lifetime is controlled by `ACCESS_TOKEN_EXPIRE_MINUTES`.
 - CORS origins are controlled by `CORS_ORIGINS`.
+- Public registration allows `employee` and `manager` roles.
+- Admin accounts are created through startup seeding from `DEFAULT_ADMIN_*` environment variables.
+- If `AGENT_EMAIL` and `AGENT_PASSWORD` are configured, startup also seeds an employee account for the agent upload API.
+
+Production validation in `backend/app/core/config.py` rejects unsafe default secrets, localhost database URLs, localhost CORS origins, weak admin passwords, and partially configured agent credentials.
 
 ## Frontend Structure
 
@@ -88,9 +98,11 @@ frontend/
       ProtectedRoute.jsx     Route guard and role guard
     components/
       DataTable.jsx          Reusable table for preview and dashboard data
+      ProgressMilestones.jsx Upload workflow progress UI
     hooks/
       useWebSocket.js        WebSocket subscription helper
     pages/
+      AdminDashboard.jsx     Admin manager/employee assignment UI
       AuthPage.jsx           Login and registration UI
       Dashboard.jsx          KPI and analytics dashboard
       ManagerDashboard.jsx   Review queue and approval actions
@@ -104,11 +116,12 @@ frontend/
 Current route map:
 
 ```text
-/          -> redirects to /dashboard or /login
+/          -> redirects to role home or /login
 /login     -> public login/register page
 /dashboard -> authenticated employee or manager dashboard
 /uploads   -> authenticated employee or manager upload center
 /manager   -> manager-only review dashboard
+/admin     -> admin-only assignment dashboard
 ```
 
 ## Backend Structure
@@ -117,20 +130,23 @@ Current route map:
 backend/
   app/
     api/
+      admin.py         Manager/employee listing and assignment endpoints
+      agent.py         Agent login and upload endpoints
       analytics.py     KPI, workflow totals, trends, latest transactions
       approvals.py     Approve, decline, and request-reupload actions
       auth.py          Register, login, current-user endpoints
       uploads.py       Spreadsheet upload, validation, preview, listing
       websockets.py    /ws/{channel} endpoint
     core/
-      config.py        Environment-backed settings
+      config.py        Environment-backed settings and production validation
       security.py      Password hashing, JWTs, role dependencies
     db/
       session.py       Async SQLAlchemy engine/session
     services/
+      email.py               Optional SMTP notifications and review links
       excel_parser.py        Spreadsheet parsing and financial validation
       websocket_manager.py   In-memory WebSocket channel broadcaster
-    main.py            FastAPI app, CORS, routers, startup table creation
+    main.py            FastAPI app, CORS, routers, startup account seeding
     models.py          SQLAlchemy models and enums
     schemas.py         Pydantic request/response models
 ```
@@ -161,6 +177,7 @@ Accepted enum values:
 Validation behavior:
 
 - Empty files are rejected.
+- Unsupported extensions are rejected.
 - Files over `MAX_UPLOAD_SIZE_MB` are rejected.
 - Missing required columns are reported.
 - Required cell values must be present.
@@ -180,6 +197,9 @@ Validation behavior:
 7. Valid records are converted into typed `transaction_rows`.
 8. The upload returns a preview response with columns, row count, detected types, validation metadata, and preview rows.
 9. WebSocket events notify upload, manager, and dashboard clients.
+10. If the uploading employee has an assigned manager and email is enabled, the manager receives a review notification.
+
+Agent uploads reuse the same creation path through `POST /api/agent/upload`. Agent login through `POST /api/agent/login` only succeeds for employee accounts.
 
 ## Approval Workflow
 
@@ -187,27 +207,49 @@ Manager actions are handled through `backend/app/api/approvals.py`.
 
 Available actions:
 
-- Approve: `POST /api/approvals/{upload_id}/approve`
-- Decline: `POST /api/approvals/{upload_id}/reject`
-- Request reupload: `POST /api/approvals/{upload_id}/request-reupload`
+- Approve: `POST /api/approvals/{upload_id}/approve` or `POST /api/approvals/approve`
+- Decline: `POST /api/approvals/{upload_id}/reject` or `POST /api/approvals/reject`
+- Request reupload: `POST /api/approvals/{upload_id}/request-reupload` or `POST /api/approvals/request-reupload`
 
 Workflow:
 
 1. A submission starts in `pending`.
-2. A manager reviews the parsed transaction rows.
+2. The assigned manager reviews the parsed transaction rows.
 3. Approving changes `submissions.review_status` to `approved` and creates a `reviews` row.
 4. Declining changes status to `declined`; a comment is required.
 5. Requesting reupload changes status to `reupload_requested`; a comment is required.
 6. The database enforces one review per submission.
 7. WebSocket events refresh upload status, manager queues, and dashboard KPIs.
+8. If email is enabled, the uploading employee receives the review decision and any comment.
 
-Unlike the earlier architecture, approved data is not copied into a separate `approved_transactions` table. All uploaded transaction rows stay in `transaction_rows`, and approval state is represented by the parent `submissions.review_status`.
+Approved data is not copied into a separate table. All uploaded transaction rows stay in `transaction_rows`, and approval state is represented by the parent `submissions.review_status`.
+
+## Admin Assignment Workflow
+
+Admin actions are handled through `backend/app/api/admin.py`.
+
+Available actions:
+
+- List managers: `GET /api/admin/managers`
+- List employees: `GET /api/admin/employees`
+- Assign employee: `POST /api/admin/assign`
+- Reassign employee: `POST /api/admin/reassign`
+
+Assignment behavior:
+
+1. The admin dashboard loads manager and employee lists.
+2. Managers are returned with assigned employee counts.
+3. Employees are returned with current manager details and assignment status.
+4. Assigning requires an employee id and manager id.
+5. `assign` rejects employees who already have a manager.
+6. `reassign` allows changing an existing assignment.
+7. If email is enabled, assigned employees receive a manager assignment notification.
 
 ## Database Schema
 
 Core tables:
 
-- `users`: application users with email, hashed password, and role.
+- `users`: application users with email, hashed password, role, optional manager assignment, and creation timestamp.
 - `submissions`: uploaded file metadata, file path, version metadata, parent submission reference, review status, and upload timestamp.
 - `reviews`: manager decision, required comments for non-approval actions, and review timestamp.
 - `transaction_rows`: normalized financial transaction rows linked to a submission.
@@ -216,6 +258,7 @@ Main relationships:
 
 - `users.id` -> `submissions.user_id`
 - `users.id` -> `reviews.manager_id`
+- `users.id` -> `users.manager_id`
 - `submissions.id` -> `reviews.submission_id`
 - `submissions.id` -> `transaction_rows.submission_id`
 - `submissions.id` -> `submissions.parent_submission_id`
@@ -225,35 +268,53 @@ Important indexes:
 - `idx_submissions_user_uploaded`
 - `idx_submissions_status_uploaded`
 - `idx_submissions_parent`
+- `idx_users_manager_id`
 - `idx_reviews_manager_reviewed`
 - `idx_transaction_rows_submission`
 - `idx_transaction_rows_transaction_id`
 - `idx_transaction_rows_date`
 - `idx_transaction_rows_amount`
 
+Database definitions are maintained in SQLAlchemy models, Alembic migrations under `backend/alembic/versions/`, and `database/schema.sql` for Docker initialization.
+
 ## API Surface
 
 Authentication:
 
-- `POST /api/auth/register`: create a user and return a JWT session.
+- `POST /api/auth/register`: create an employee or manager and return a JWT session.
 - `POST /api/auth/login`: authenticate and return a JWT session.
 - `GET /api/auth/me`: return the current authenticated user.
+
+Agent:
+
+- `POST /api/agent/login`: authenticate an employee account for agent use and return a bearer token.
+- `POST /api/agent/upload`: upload and parse a spreadsheet through the same upload pipeline. Requires `employee`.
 
 Uploads:
 
 - `POST /api/uploads`: upload and parse a spreadsheet. Requires `employee`.
-- `GET /api/uploads`: list recent uploads with optional `status` filter. Requires `employee` or `manager`.
-- `GET /api/uploads/{upload_id}`: fetch metadata and preview rows. Requires `employee` or `manager`.
+- `GET /api/uploads`: list recent uploads with optional `status` filter. Requires `employee`, `manager`, or `admin`.
+- `GET /api/uploads/{upload_id}`: fetch metadata and preview rows. Requires `employee`, `manager`, or `admin`, scoped by role.
 
 Approvals:
 
 - `POST /api/approvals/{upload_id}/approve`: approve a pending submission. Requires `manager`.
 - `POST /api/approvals/{upload_id}/reject`: decline a pending submission with comment. Requires `manager`.
 - `POST /api/approvals/{upload_id}/request-reupload`: request a corrected upload with comment. Requires `manager`.
+- `POST /api/approvals/approve`: approve a pending submission by body `upload_id`. Requires `manager`.
+- `POST /api/approvals/reject`: decline a pending submission by body `upload_id`. Requires `manager`.
+- `POST /api/approvals/request-reupload`: request a corrected upload by body `upload_id`. Requires `manager`.
+
+Admin:
+
+- `GET /api/admin/managers`: list managers and assigned employee counts. Requires `admin`.
+- `GET /api/admin/employees`: list employees and assignment status. Requires `admin`.
+- `POST /api/admin/assign`: assign an unassigned employee to a manager. Requires `admin`.
+- `POST /api/admin/reassign`: change an employee's manager assignment. Requires `admin`.
 
 Analytics:
 
-- `GET /api/analytics/kpis`: return totals, workflow amounts, recent uploads, latest upload, latest transactions, transaction amount trend, and upload trend data. Requires `employee` or `manager`.
+- `GET /api/analytics/kpis`: return totals, workflow amounts, recent uploads, latest upload, latest transactions, transaction amount trend, and upload trend data. Requires `employee`, `manager`, or `admin`.
 
 Health:
 
@@ -325,6 +386,12 @@ Optional query filters:
 - `date_from`
 - `date_to`
 
+Role scope:
+
+- Employees only see their own submissions.
+- Managers only see submissions from assigned employees.
+- Admins see all submissions.
+
 ## Deployment Strategy
 
 Development options:
@@ -341,22 +408,25 @@ Docker Compose services:
 Production recommendations:
 
 - Replace default JWT secret values before deployment.
+- Replace default admin credentials before deployment.
 - Use managed PostgreSQL with backups.
 - Store uploaded files in object storage instead of local disk or a single Docker volume.
-- Use Alembic migrations instead of startup `Base.metadata.create_all` for controlled schema changes.
+- Use Alembic migrations for controlled schema changes.
 - Run FastAPI behind a production ASGI process manager or platform service.
 - Serve the built frontend through Nginx, CDN, or static hosting.
+- Configure SMTP only when notification email should be sent.
 - Add structured logging, metrics, tracing, and alerting.
 
 ## Current Limitations
 
 - WebSocket broadcasting is process-local.
 - Upload parsing runs inline in the API request.
-- There is no Alembic migration history yet.
 - Uploaded files are stored on local disk or a Docker volume.
 - Reupload versioning fields exist in the schema, but the upload endpoint does not yet create linked replacement submissions.
 - Manager comments are stored as the review record, not as a separate discussion thread.
 - The app validates one fixed financial transaction schema rather than arbitrary Excel structures.
+- Email notifications are best-effort and disabled unless SMTP settings are configured.
+- Automated backend and frontend tests are not yet present in the repository.
 
 ## Roadmap
 
@@ -367,16 +437,19 @@ Phase 1: Current project level
 - Financial transaction schema validation.
 - Typed transaction row persistence.
 - Manager approve, decline, and request-reupload workflow.
+- Admin manager assignment workflow.
+- Optional SMTP notifications.
+- Agent login/upload endpoint.
 - KPI dashboard and WebSocket refresh events.
 - Dockerized frontend, backend, and PostgreSQL services.
 
 Phase 2: Stabilization
 
-- Add Alembic migrations.
 - Add automated backend and frontend tests.
 - Improve validation feedback in the upload UI.
 - Implement linked reupload/version history.
 - Add audit views for review decisions.
+- Add transactional cleanup if file parsing fails after the raw file has been written.
 
 Phase 3: Scale and reliability
 

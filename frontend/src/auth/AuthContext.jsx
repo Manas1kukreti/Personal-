@@ -36,10 +36,24 @@ export function AuthProvider({ children }) {
     return response.data;
   }
 
-  function logout() {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setSession(null);
+  function updateUser(nextUser) {
+    setSession((currentSession) => {
+      if (!currentSession) return currentSession;
+      const nextSession = { ...currentSession, user: nextUser };
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextSession));
+      return nextSession;
+    });
   }
+
+  async function logout() {
+  try {
+    await api.post("/auth/logout");  
+  } catch {
+    
+  }
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  setSession(null);
+}
 
   useEffect(() => {
     let isMounted = true;
@@ -82,6 +96,7 @@ export function AuthProvider({ children }) {
       isCheckingSession,
       login,
       register,
+      updateUser,
       logout
     }),
     [isCheckingSession, session]

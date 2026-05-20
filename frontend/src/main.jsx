@@ -6,8 +6,10 @@ import ProtectedRoute from "./auth/ProtectedRoute.jsx";
 import AppShell from "./shell/AppShell.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import UploadCenter from "./pages/UploadCenter.jsx";
+import SubmissionsPage from "./pages/SubmissionsPage.jsx";
 import ManagerDashboard from "./pages/ManagerDashboard.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
 import AuthPage from "./pages/AuthPage.jsx";
 import "./styles.css";
 
@@ -28,6 +30,8 @@ createRoot(document.getElementById("root")).render(
             <Route element={<AppShell />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/uploads" element={<UploadCenter />} />
+              <Route path="/submissions" element={<SubmissionsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
           <Route element={<ProtectedRoute roles={["manager"]} />}>

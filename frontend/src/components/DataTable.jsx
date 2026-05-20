@@ -1,81 +1,176 @@
 import React from "react";
-import { useMemo, useState } from "react";
-import { FiChevronDown, FiSearch } from "react-icons/fi";
+import { useEffect, useMemo, useState } from "react";
+import { FiChevronLeft, FiChevronRight, FiColumns, FiDownload, FiSearch } from "react-icons/fi";
 
-export default function DataTable({ columns = [], rows = [], pageSize = 8 }) {
+export default function DataTable({ columns = [], rows = [], pageSize = 8, title = "Extracted Data Preview" }) {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState({ key: columns[0] || "", direction: "asc" });
+  const [showColumns, setShowColumns] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState(() => Object.fromEntries(columns.map((column) => [column, true])));
+
+  useEffect(() => {
+    setVisibleColumns((current) => {
+      const next = Object.fromEntries(columns.map((column) => [column, current[column] ?? true]));
+      return next;
+    });
+    setSort((current) => ({ key: current.key || columns[0] || "", direction: current.direction || "asc" }));
+  }, [columns]);
+
+  const activeColumns = columns.filter((column) => visibleColumns[column]);
 
   const filteredRows = useMemo(() => {
-    const normalized = query.toLowerCase();
-    if (!normalized) return rows;
-    return rows.filter((row) => JSON.stringify(row).toLowerCase().includes(normalized));
-  }, [query, rows]);
+    const normalized = query.trim().toLowerCase();
+    const nextRows = normalized
+      ? rows.filter((row) => JSON.stringify(row).toLowerCase().includes(normalized))
+      : rows;
+
+    if (!sort.key) return nextRows;
+    return [...nextRows].sort((a, b) => {
+      const first = normalizeSortValue(a[sort.key]);
+      const second = normalizeSortValue(b[sort.key]);
+      if (first < second) return sort.direction === "asc" ? -1 : 1;
+      if (first > second) return sort.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [query, rows, sort]);
 
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const visibleRows = filteredRows.slice(page * pageSize, (page + 1) * pageSize);
 
+  useEffect(() => {
+    setPage(0);
+  }, [query, sort, rows]);
+
+  function toggleSort(column) {
+    setSort((current) => ({
+      key: column,
+      direction: current.key === column && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+
+  function toggleColumn(column) {
+    setVisibleColumns((current) => {
+      const enabledCount = Object.values(current).filter(Boolean).length;
+      if (current[column] && enabledCount <= 1) return current;
+      return { ...current, [column]: !current[column] };
+    });
+  }
+
+  function exportCsv() {
+    if (!filteredRows.length) return;
+    const csv = [
+      activeColumns,
+      ...filteredRows.map((row) => activeColumns.map((column) => row[column] ?? ""))
+    ]
+      .map((line) => line.map((cell) => `"${String(cell).replaceAll("\"", "\"\"")}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ledgerflow-table-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <div className="elevated-panel overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4">
+    <div className="elevated-panel data-table-card">
+      <div className="data-table-header">
         <div>
-          <div className="text-sm font-bold text-ink">Extracted Data Preview</div>
-          <div className="text-xs text-muted">{filteredRows.length} rows available</div>
+          <div className="data-table-title">{title}</div>
+          <div className="data-table-subtitle">{filteredRows.length} rows available</div>
         </div>
-        <label className="flex min-w-64 items-center gap-2 border border-line bg-slate-50 px-3 py-2" style={{ borderRadius: 8 }}>
-          <FiSearch className="text-muted" />
-          <input
-            className="w-full border-0 bg-transparent text-sm text-ink outline-none placeholder:text-slate-400"
-            placeholder="Search preview"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(0);
-            }}
-          />
-        </label>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-muted">
-            <tr>
-              {columns.map((column) => (
-                <th key={column} className="whitespace-nowrap px-4 py-3 font-bold">
-                  <span className="inline-flex items-center gap-1">
+        <div className="data-table-actions">
+          <label className="upload-search data-table-search">
+            <FiSearch />
+            <input
+              placeholder="Search table"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <div className="upload-column-menu-wrap">
+            <button className="secondary-button" onClick={() => setShowColumns((value) => !value)}>
+              <FiColumns /> Columns
+            </button>
+            {showColumns && (
+              <div className="upload-column-menu">
+                {columns.map((column) => (
+                  <label key={column}>
+                    <input type="checkbox" checked={Boolean(visibleColumns[column])} onChange={() => toggleColumn(column)} />
                     {column}
-                    <FiChevronDown className="text-slate-300" />
-                  </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="secondary-button" onClick={exportCsv} disabled={!filteredRows.length}>
+            <FiDownload /> Export
+          </button>
+        </div>
+      </div>
+
+      <div className="data-table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              {activeColumns.map((column) => (
+                <th key={column}>
+                  <button className="upload-sort-button" onClick={() => toggleSort(column)}>
+                    {column}
+                    <span>{sort.key === column ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}</span>
+                  </button>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-line">
+          <tbody>
             {visibleRows.map((row, index) => (
-              <tr key={`${page}-${index}`} className="hover:bg-slate-50">
-                {columns.map((column) => (
-                  <td key={column} className="max-w-72 truncate px-4 py-3 text-slate-700">{String(row[column] ?? "")}</td>
+              <tr key={`${page}-${index}`}>
+                {activeColumns.map((column) => (
+                  <td key={column}>{String(row[column] ?? "")}</td>
                 ))}
               </tr>
             ))}
             {!visibleRows.length && (
               <tr>
-                <td colSpan={Math.max(1, columns.length)} className="px-4 py-10 text-center text-sm text-muted">
-                  No rows match the current search.
+                <td colSpan={Math.max(1, activeColumns.length)}>
+                  <div className="data-table-empty">
+                    <strong>No matching rows</strong>
+                    <span>Adjust search terms or column filters to widen the result set.</span>
+                  </div>
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between border-t border-line p-4 text-sm">
-        <button className="secondary-button" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>
-          Previous
-        </button>
-        <span className="text-slate-500">Page {page + 1} of {pageCount}</span>
-        <button className="secondary-button" disabled={page + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}>
-          Next
-        </button>
+
+      <div className="upload-pagination">
+        <span>
+          Showing <b>{filteredRows.length ? page * pageSize + 1 : 0}-{Math.min(filteredRows.length, page * pageSize + pageSize)}</b> of <b>{filteredRows.length}</b>
+        </span>
+        <div>
+          <button className="icon-button" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} title="Previous page">
+            <FiChevronLeft />
+          </button>
+          <span className="upload-page-chip">Page {page + 1} / {pageCount}</span>
+          <button className="icon-button" disabled={page + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} title="Next page">
+            <FiChevronRight />
+          </button>
+        </div>
       </div>
     </div>
   );
+}
+
+function normalizeSortValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "number") return value;
+  const asNumber = Number(value);
+  if (!Number.isNaN(asNumber) && String(value).trim() !== "") return asNumber;
+  const asDate = new Date(value).getTime();
+  if (!Number.isNaN(asDate)) return asDate;
+  return String(value).toLowerCase();
 }

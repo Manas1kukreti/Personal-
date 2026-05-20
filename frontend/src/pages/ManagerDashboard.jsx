@@ -1,6 +1,6 @@
 import React from "react";
-import { useCallback, useEffect, useState } from "react";
-import { FiCheck, FiChevronRight, FiClock, FiMessageSquare, FiRefreshCw, FiRotateCcw, FiX } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiCheck, FiChevronRight, FiClock, FiMessageSquare, FiRefreshCw, FiRotateCcw, FiSearch, FiX } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import DataTable from "../components/DataTable.jsx";
@@ -14,6 +14,8 @@ export default function ManagerDashboard() {
   const [comment, setComment] = useState("");
   const [acting, setActing] = useState("");
   const [openedDeepLink, setOpenedDeepLink] = useState("");
+  const [queueSearch, setQueueSearch] = useState("");
+  const [queueStatus, setQueueStatus] = useState("");
 
   const loadQueue = useCallback(async () => {
     const response = await api.get("/uploads");
@@ -65,134 +67,406 @@ export default function ManagerDashboard() {
   const pending = uploads.filter((upload) => upload.status === "pending").length;
   const approved = uploads.filter((upload) => upload.status === "approved").length;
   const declined = uploads.filter((upload) => upload.status === "declined").length;
+  const queueItems = useMemo(() => {
+    const search = queueSearch.trim().toLowerCase();
+    return uploads.filter((upload) => {
+      const matchesStatus = !queueStatus || upload.status === queueStatus;
+      const matchesSearch = !search || [upload.filename, upload.uploader_name, upload.status]
+        .some((value) => String(value || "").toLowerCase().includes(search));
+      return matchesStatus && matchesSearch;
+    });
+  }, [uploads, queueSearch, queueStatus]);
 
   return (
-    <div className="space-y-5">
-      <section className="flex flex-wrap items-center justify-between gap-3">
+    <div className="app-page" style={{ padding: "24px 28px", background: "#F7F5F0", minHeight: "100vh", display: "grid", gridTemplateColumns: "1fr" }}>
+      {/* Header Section */}
+      <section className="flex flex-wrap items-center justify-between gap-4 animate-slide-in-top" style={{ marginBottom: 24 }}>
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-ink">Manager Dashboard</h1>
-          <p className="text-sm text-muted">Review pending uploads and manage approval decisions.</p>
+          <h1 style={{ fontSize: 20, fontWeight: 500, color: "#0a3d2e", margin: 0, marginBottom: 4 }}>Manager Dashboard</h1>
+          <p style={{ fontSize: 13, color: "#6b9080", margin: 0 }}>Review pending uploads and manage approval decisions.</p>
         </div>
-        <button className="secondary-button" onClick={loadQueue}><FiRefreshCw /> Refresh queue</button>
+        <button className="secondary-button" onClick={loadQueue}>
+          <FiRefreshCw size={16} /> Refresh queue
+        </button>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <Stat label="Pending Review" value={pending} tone="text-warning" />
-        <Stat label="Approved" value={approved} tone="text-success" />
-        <Stat label="Declined" value={declined} tone="text-danger" />
-        <Stat label="Total Processed" value={uploads.length} tone="text-accent" />
+      {/* KPI Cards */}
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <StatCard label="Pending Review" value={pending} tone="#854f0b" />
+        <StatCard label="Approved" value={approved} tone="#155E58" />
+        <StatCard label="Declined" value={declined} tone="#a32d2d" />
+        <StatCard label="Total Processed" value={uploads.length} tone="#1E8278" />
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-        <section className="elevated-panel overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line p-4">
+      {/* Main Content - Queue and Review */}
+      <section style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 20 }} className="xl:grid-cols-[380px_1fr]">
+        {/* LEFT: Approval Queue */}
+        <div className="elevated-panel overflow-hidden animate-slide-in-left" style={{ animationDelay: "0.1s" }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottomWidth: "0.5px",
+            borderBottomColor: "#D9E3DD",
+            padding: "16px 20px"
+          }}>
             <div>
-              <h2 className="text-base font-bold text-ink">Approval Queue</h2>
-              <p className="text-sm text-muted">New uploads arrive here in real time.</p>
+              <h2 style={{ fontSize: 14, fontWeight: 500, color: "#0a3d2e", margin: 0 }}>Approval Queue</h2>
+              <p style={{ fontSize: 12, color: "#6b9080", margin: 0, marginTop: 2 }}>New uploads arrive here in real time.</p>
             </div>
-            {pending > 0 && <span className="status-badge status-pending">{pending}</span>}
+            {pending > 0 && (
+              <span style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                background: "#faeeda",
+                color: "#854f0b",
+                fontSize: 11,
+                fontWeight: 500
+              }}>
+                {pending}
+              </span>
+            )}
           </div>
-          <div className="divide-y divide-line">
-            {uploads.map((upload) => (
+          <div className="queue-toolbar">
+            <label className="upload-search">
+              <FiSearch />
+              <input value={queueSearch} onChange={(event) => setQueueSearch(event.target.value)} placeholder="Search queue" />
+            </label>
+            <select className="form-input" value={queueStatus} onChange={(event) => setQueueStatus(event.target.value)}>
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="declined">Declined</option>
+              <option value="reupload_requested">Re-upload</option>
+            </select>
+          </div>
+
+          <div style={{ divideY: "1px", divideColor: "#D9E3DD" }}>
+            {queueItems.map((upload) => (
               <button
                 key={upload.id}
-                className={`w-full border-l-4 p-4 text-left transition hover:bg-slate-50 ${
-                  selected?.upload_id === upload.id ? "border-brand bg-teal-50/60" : "border-transparent"
-                }`}
                 onClick={() => openUpload(upload)}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  borderLeft: selected?.upload_id === upload.id ? "4px solid #155E58" : "4px solid transparent",
+                  background: selected?.upload_id === upload.id ? "#E7F5F1" : "#fff",
+                  padding: 16,
+                  transition: "all 0.15s ease",
+                  border: "none",
+                  cursor: "pointer",
+                  borderBottomWidth: "0.5px",
+                  borderBottomColor: "#eef4f2"
+                }}
+                onMouseEnter={(e) => {
+                  if (selected?.upload_id !== upload.id) e.currentTarget.style.background = "#fafcfb";
+                }}
+                onMouseLeave={(e) => {
+                  if (selected?.upload_id !== upload.id) e.currentTarget.style.background = "#fff";
+                }}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="mono truncate text-xs font-bold text-accent">{upload.filename}</div>
-                    <div className="mt-1 text-xs text-muted">
-                      {upload.uploader_name || "Employee"} - {upload.total_rows} rows - {upload.total_columns} columns
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "#1E8278",
+                      fontFamily: "monospace",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap"
+                    }}>
+                      {upload.filename}
                     </div>
-                    <div className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-                      <FiClock /> {new Date(upload.created_at).toLocaleString()}
+                    <div style={{ marginTop: 4, fontSize: 11, color: "#6b9080" }}>
+                      {upload.uploader_name || "Employee"} · {upload.total_rows} rows · {upload.total_columns} cols
+                    </div>
+                    <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#8ab8aa" }}>
+                      <FiClock size={12} /> {new Date(upload.created_at).toLocaleString()}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, shrinkFlex: 0 }}>
                     <StatusBadge status={upload.status} />
-                    <FiChevronRight className="text-slate-300" />
+                    <FiChevronRight size={16} style={{ color: "#D9E3DD" }} />
                   </div>
                 </div>
               </button>
             ))}
-            {!uploads.length && <div className="p-8 text-center text-sm text-muted">No uploads found.</div>}
+            {!queueItems.length && (
+              <div style={{
+                padding: 32,
+                textAlign: "center",
+                fontSize: 13,
+                color: "#6b9080"
+              }}>
+                No uploads found.
+              </div>
+            )}
           </div>
-        </section>
+        </div>
 
-        <section className="space-y-5">
-          <div className="elevated-panel p-5">
-            <h2 className="text-base font-bold text-ink">Review Upload</h2>
+        {/* RIGHT: Review Section */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Review Panel */}
+          <div className="elevated-panel p-5 animate-slide-in-right" style={{ animationDelay: "0.15s" }}>
+            <h2 style={{ fontSize: 14, fontWeight: 500, color: "#0a3d2e", margin: 0, marginBottom: 16 }}>Review Upload</h2>
+            
             {selected ? (
-              <div className="mt-4 space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <Tile label="File" value={selected.filename} />
-                  <Tile label="Rows" value={selected.total_rows} />
-                  <Tile label="Status" value={selected.status} />
+              <div style={{ space: 16, display: "grid", gap: 16 }}>
+                {/* File Info Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                  <InfoTile label="File" value={selected.filename} />
+                  <InfoTile label="Rows" value={selected.total_rows} />
+                  <InfoTile label="Status" value={selected.status} />
                 </div>
+
+                {/* Milestones */}
                 <ProgressMilestones status={selected.status} createdAt={selected.created_at} reviewedAt={selected.reviewed_at} />
+
+                {/* Columns */}
                 <div>
-                  <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Extracted Columns</div>
-                  <div className="flex flex-wrap gap-2">
-                    {selected.columns.map((column) => <span className="chip" key={column}>{column}</span>)}
+                  <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", color: "#3a6655", marginBottom: 8, letterSpacing: "0.06em" }}>
+                    Extracted Columns
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {selected.columns.map((column) => (
+                      <span key={column} className="chip">
+                        {column}
+                      </span>
+                    ))}
                   </div>
                 </div>
-                <label className="block">
-                  <span className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted">
-                    <FiMessageSquare /> Manager Comment
+
+                {/* Comment Box */}
+                <label style={{ display: "block" }}>
+                  <span style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    textTransform: "uppercase",
+                    color: "#3a6655",
+                    marginBottom: 8,
+                    letterSpacing: "0.06em"
+                  }}>
+                    <FiMessageSquare size={14} /> Manager Comment
                   </span>
                   <textarea
-                    className="min-h-24 w-full border border-line bg-slate-50 p-3 text-sm text-ink outline-none transition focus:border-brand focus:bg-white"
-                    style={{ borderRadius: 8 }}
+                    style={{
+                      width: "100%",
+                      minHeight: 96,
+                      borderWidth: "0.5px",
+                      borderColor: "#D9E3DD",
+                      background: "#FBFAF6",
+                      padding: 12,
+                      fontSize: 13,
+                      color: "#0a3d2e",
+                      outline: "none",
+                      transition: "all 0.15s ease",
+                      borderRadius: 8,
+                      fontFamily: "inherit"
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = "#155E58";
+                      e.target.style.background = "#fff";
+                      e.target.style.boxShadow = "0 0 0 3px rgba(58, 191, 177, 0.14)";
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = "#D9E3DD";
+                      e.target.style.background = "#FBFAF6";
+                      e.target.style.boxShadow = "none";
+                    }}
                     placeholder="Add feedback or notes for the uploader..."
                     value={comment}
                     onChange={(event) => setComment(event.target.value)}
                   />
                 </label>
-                <div className="flex flex-wrap gap-3">
-                  <button className="secondary-button border-red-200 text-red-700 hover:border-red-500 hover:bg-red-50 hover:text-red-700" disabled={selected.status !== "pending" || !!acting} onClick={() => review("reject")}><FiX /> {acting === "reject" ? "Rejecting..." : "Reject"}</button>
-                  <button className="secondary-button border-blue-200 text-accent hover:border-blue-500 hover:bg-blue-50 hover:text-accent" disabled={selected.status !== "pending" || !!acting} onClick={() => review("reupload")}><FiRotateCcw /> {acting === "reupload" ? "Requesting..." : "Request Re-upload"}</button>
-                  <button className="primary-button min-w-40" disabled={selected.status !== "pending" || !!acting} onClick={() => review("approve")}><FiCheck /> {acting === "approve" ? "Approving..." : "Approve Upload"}</button>
+
+                {/* Action Buttons */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <button
+                    onClick={() => review("reject")}
+                    disabled={selected.status !== "pending" || !!acting}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "9px 16px",
+                      borderRadius: 9,
+                      border: "1px solid #a32d2d",
+                      background: "transparent",
+                      color: "#a32d2d",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: selected.status === "pending" && !acting ? "pointer" : "not-allowed",
+                      transition: "all 0.15s ease",
+                      opacity: selected.status === "pending" && !acting ? 1 : 0.5
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selected.status === "pending" && !acting) {
+                        e.target.style.background = "#fcebeb";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    <FiX size={16} /> {acting === "reject" ? "Rejecting..." : "Reject"}
+                  </button>
+
+                  <button
+                    onClick={() => review("reupload")}
+                    disabled={selected.status !== "pending" || !!acting}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "9px 16px",
+                      borderRadius: 9,
+                      border: "1px solid #1E8278",
+                      background: "transparent",
+                      color: "#1E8278",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: selected.status === "pending" && !acting ? "pointer" : "not-allowed",
+                      transition: "all 0.15s ease",
+                      opacity: selected.status === "pending" && !acting ? 1 : 0.5
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selected.status === "pending" && !acting) {
+                        e.target.style.background = "#E7F5F1";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "transparent";
+                    }}
+                  >
+                    <FiRotateCcw size={16} /> {acting === "reupload" ? "Requesting..." : "Request Re-upload"}
+                  </button>
+
+                  <button
+                    onClick={() => review("approve")}
+                    disabled={selected.status !== "pending" || !!acting}
+                    className="primary-button"
+                    style={{ minWidth: 160 }}
+                  >
+                    <FiCheck size={16} /> {acting === "approve" ? "Approving..." : "Approve Upload"}
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="mt-4 flex min-h-48 items-center justify-center border border-line bg-slate-50 text-sm text-muted" style={{ borderRadius: 8 }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 192,
+                borderWidth: "0.5px",
+                borderColor: "#D9E3DD",
+                background: "#FBFAF6",
+                fontSize: 13,
+                color: "#6b9080",
+                borderRadius: 8
+              }}>
                 Select an upload to review
               </div>
             )}
           </div>
+
+          {/* Data Table */}
           {selected && <DataTable columns={selected.columns} rows={selected.preview_rows} />}
-        </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function StatCard({ label, value, tone }) {
+  return (
+    <div className="elevated-panel p-4 animate-stagger-in-1" style={{ animationDelay: "0.1s" }}>
+      <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", color: "#6b9080", letterSpacing: "0.06em" }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 24,
+        fontWeight: 500,
+        color: tone,
+        marginTop: 12,
+        fontFamily: "monospace"
+      }}>
+        {value}
       </div>
     </div>
   );
 }
 
-function Stat({ label, value, tone }) {
-  return (
-    <div className="elevated-panel p-4">
-      <div className="text-xs font-bold uppercase tracking-wide text-muted">{label}</div>
-      <div className={`mono mt-2 text-2xl font-semibold ${tone}`}>{value}</div>
-    </div>
-  );
-}
-
 function StatusBadge({ status }) {
+  const configs = {
+    "pending": { bg: "#faeeda", color: "#854f0b" },
+    "approved": { bg: "#E7F5F1", color: "#155E58" },
+    "declined": { bg: "#fcebeb", color: "#a32d2d" },
+    "reupload_requested": { bg: "#EEF8F5", color: "#277A73" }
+  };
+  const config = configs[status] || { bg: "#E7F5F1", color: "#6D837B" };
+  
   return (
-    <span className={`status-badge status-${status}`}>
-      <span className="status-dot bg-current" />
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
+      padding: "4px 8px",
+      borderRadius: 4,
+      fontSize: 11,
+      fontWeight: 500,
+      background: config.bg,
+      color: config.color
+    }}>
+      <span style={{
+        display: "inline-block",
+        width: 4,
+        height: 4,
+        borderRadius: "50%",
+        background: config.color
+      }} />
       {status}
     </span>
   );
 }
 
-function Tile({ label, value }) {
+function InfoTile({ label, value }) {
   return (
-    <div className="border border-line bg-slate-50 p-3" style={{ borderRadius: 8 }}>
-      <div className="text-xs font-bold uppercase tracking-wide text-muted">{label}</div>
-      <div className="mono mt-1 truncate text-sm font-bold text-ink">{value}</div>
+    <div style={{
+      borderWidth: "0.5px",
+      borderColor: "#D9E3DD",
+      background: "#FBFAF6",
+      borderRadius: 8,
+      padding: 12
+    }}>
+      <div style={{
+        fontSize: 11,
+        fontWeight: 500,
+        textTransform: "uppercase",
+        color: "#6b9080",
+        letterSpacing: "0.06em",
+        marginBottom: 4
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 13,
+        fontWeight: 500,
+        color: "#0a3d2e",
+        fontFamily: "monospace",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
+      }}>
+        {value}
+      </div>
     </div>
   );
 }
