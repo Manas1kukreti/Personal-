@@ -1,12 +1,16 @@
 from email.message import EmailMessage
 import logging
 import smtplib
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+REVIEW_TOKEN_EXPIRE_HOURS = 72
 
 
 async def send_email(to_email: str | None, subject: str, body: str) -> None:
@@ -34,6 +38,35 @@ async def send_email(to_email: str | None, subject: str, body: str) -> None:
         logger.exception("Failed to send email notification to %s", to_email)
 
 
-def manager_submission_link(submission_id) -> str:
+def generate_review_token(submission_id, manager_id) -> str:
     settings = get_settings()
-    return f"{settings.frontend_base_url.rstrip('/')}/manager?submission_id={submission_id}"
+    payload = {
+        "submission_id": str(submission_id),
+        "manager_id": str(manager_id),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=REVIEW_TOKEN_EXPIRE_HOURS),
+        "purpose": "review_link",
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def verify_review_token(token: str) -> dict:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm]
+        )
+        if payload.get("purpose") != "review_link":
+            raise ValueError("Invalid token purpose")
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise ValueError("This review link has expired. Please ask the employee to re-submit or contact your admin.")
+    except jwt.InvalidTokenError:
+        raise ValueError("Invalid review link.")
+
+
+def manager_submission_link(submission_id, manager_id) -> str:
+    settings = get_settings()
+    token = generate_review_token(submission_id, manager_id)
+    return f"{settings.frontend_base_url.rstrip('/')}/manager?token={token}"

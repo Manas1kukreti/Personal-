@@ -1,10 +1,16 @@
 import React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiArchive, FiDownload, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FiArchive, FiDownload, FiMessageSquare, FiRefreshCw, FiSearch, FiUploadCloud } from "react-icons/fi";
 import { api } from "../api/client.js";
+import CommentThread from "../components/CommentThread.jsx";
 
 export default function SubmissionsPage() {
+  const reuploadInputRef = useRef(null);
   const [uploads, setUploads] = useState([]);
+  const [selectedUpload, setSelectedUpload] = useState(null);
+  const [reuploadTarget, setReuploadTarget] = useState(null);
+  const [reuploading, setReuploading] = useState("");
+  const [reuploadError, setReuploadError] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
 
@@ -16,6 +22,12 @@ export default function SubmissionsPage() {
   useEffect(() => {
     loadUploads().catch(() => setUploads([]));
   }, [loadUploads]);
+
+  useEffect(() => {
+    if (!selectedUpload) return;
+    const freshUpload = uploads.find((upload) => upload.id === selectedUpload.id);
+    if (freshUpload) setSelectedUpload(freshUpload);
+  }, [selectedUpload, uploads]);
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -51,8 +63,43 @@ export default function SubmissionsPage() {
     URL.revokeObjectURL(url);
   }
 
+  function startReupload(upload) {
+    setReuploadTarget(upload);
+    setReuploadError("");
+    if (reuploadInputRef.current) {
+      reuploadInputRef.current.value = "";
+      reuploadInputRef.current.click();
+    }
+  }
+
+  async function submitReupload(file) {
+    if (!file || !reuploadTarget) return;
+    const form = new FormData();
+    form.append("file", file);
+    setReuploading(reuploadTarget.id);
+    setReuploadError("");
+    try {
+      await api.post(`/uploads/${reuploadTarget.id}/reupload`, form, { headers: { "Content-Type": "multipart/form-data" } });
+      setReuploadTarget(null);
+      await loadUploads();
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      setReuploadError(typeof detail === "string" ? detail : "Re-upload failed. Please check the file and try again.");
+    } finally {
+      setReuploading("");
+    }
+  }
+
   return (
     <div className="app-page submissions-page">
+      <input
+        ref={reuploadInputRef}
+        className="hidden"
+        type="file"
+        accept=".xlsx,.csv"
+        onChange={(event) => submitReupload(event.target.files?.[0])}
+      />
+
       <section className="submissions-header">
         <div>
           <h1>Submissions</h1>
@@ -81,6 +128,7 @@ export default function SubmissionsPage() {
       </section>
 
       <section className="elevated-panel submissions-table-card">
+        {reuploadError && <div className="comment-error">{reuploadError}</div>}
         <table className="submissions-table">
           <thead>
             <tr>
@@ -90,15 +138,23 @@ export default function SubmissionsPage() {
               <th>Columns</th>
               <th>Uploader</th>
               <th>Created</th>
+              <th>Version</th>
+              <th>Conversation</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((upload) => (
-              <tr key={upload.id}>
+              <tr key={upload.id} className={selectedUpload?.id === upload.id ? "is-selected" : ""}>
                 <td>
                   <div className="submission-file">
                     <span><FiArchive /></span>
-                    <strong>{upload.filename}</strong>
+                    <div className="submission-file-copy">
+                      <strong>{upload.filename}</strong>
+                      {upload.status === "reupload_requested" && (
+                        <em>Re-upload Required</em>
+                      )}
+                    </div>
                   </div>
                 </td>
                 <td><span className={`status-badge status-${upload.status}`}>{upload.status}</span></td>
@@ -106,6 +162,21 @@ export default function SubmissionsPage() {
                 <td className="mono">{upload.total_columns || 0}</td>
                 <td>{upload.uploader_name || "-"}</td>
                 <td>{upload.created_at ? new Date(upload.created_at).toLocaleString("en-IN") : "-"}</td>
+                <td><span className="version-chip">v{upload.version_number || 1}</span></td>
+                <td>
+                  <button className="secondary-button submission-comment-button" onClick={() => setSelectedUpload(upload)}>
+                    <FiMessageSquare /> Open
+                  </button>
+                </td>
+                <td>
+                  {upload.status === "reupload_requested" ? (
+                    <button className="primary-button submission-comment-button" onClick={() => startReupload(upload)} disabled={reuploading === upload.id}>
+                      <FiUploadCloud /> {reuploading === upload.id ? "Uploading..." : "Re-upload"}
+                    </button>
+                  ) : (
+                    <span className="muted-cell">-</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -118,6 +189,19 @@ export default function SubmissionsPage() {
           </div>
         )}
       </section>
+
+      {selectedUpload && (
+        <section className="elevated-panel submissions-conversation-panel">
+          <div className="submissions-conversation-header">
+            <div>
+              <h2>{selectedUpload.filename}</h2>
+              <p>{selectedUpload.status} - {Number(selectedUpload.total_rows || 0).toLocaleString("en-IN")} rows</p>
+            </div>
+            <button className="secondary-button" onClick={() => setSelectedUpload(null)}>Close</button>
+          </div>
+          <CommentThread submissionId={selectedUpload.id} title="Submission conversation" />
+        </section>
+      )}
     </div>
   );
 }

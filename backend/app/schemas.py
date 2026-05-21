@@ -58,10 +58,21 @@ class AgentTokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class UploadVersionRead(BaseModel):
+    id: UUID
+    filename: str
+    status: str
+    version_number: int
+    created_at: datetime
+    reviewed_at: datetime | None = None
+
+
 class UploadPreview(BaseModel):
     upload_id: UUID
     filename: str
     status: str
+    version_number: int = 1
+    parent_submission_id: UUID | None = None
     total_rows: int
     total_columns: int
     created_at: datetime | None = None
@@ -70,12 +81,15 @@ class UploadPreview(BaseModel):
     detected_types: dict = Field(default_factory=dict)
     validation: dict = Field(default_factory=dict)
     preview_rows: list[dict]
+    version_history: list[UploadVersionRead] = Field(default_factory=list)
 
 
 class UploadSummary(BaseModel):
     id: UUID
     filename: str
     status: str
+    version_number: int = 1
+    parent_submission_id: UUID | None = None
     total_rows: int
     total_columns: int
     uploader_name: str | None = None
@@ -94,7 +108,7 @@ class ApprovalActionRequest(ApprovalRequest):
 
 
 class RejectRequest(ApprovalRequest):
-    comment: str = Field(min_length=1, max_length=2000)
+    pass
 
 
 class ReuploadRequest(RejectRequest):
@@ -107,3 +121,17 @@ class RejectActionRequest(RejectRequest):
 
 class ReuploadActionRequest(ReuploadRequest):
     upload_id: UUID
+
+
+class SubmissionCommentCreate(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class SubmissionCommentRead(BaseModel):
+    id: UUID
+    submission_id: UUID
+    user_id: UUID
+    user_name: str
+    user_role: str
+    message: str
+    created_at: datetime

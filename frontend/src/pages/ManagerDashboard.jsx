@@ -1,44 +1,93 @@
 import React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiCheck, FiChevronRight, FiClock, FiMessageSquare, FiRefreshCw, FiRotateCcw, FiSearch, FiX } from "react-icons/fi";
-import { useSearchParams } from "react-router-dom";
+import { FiCheck, FiChevronRight, FiClock, FiRefreshCw, FiRotateCcw, FiSearch, FiX } from "react-icons/fi";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
+import { useAuth } from "../auth/AuthContext.jsx";
+import CommentThread from "../components/CommentThread.jsx";
 import DataTable from "../components/DataTable.jsx";
 import ProgressMilestones from "../components/ProgressMilestones.jsx";
 import { useWebSocket } from "../hooks/useWebSocket.js";
 
 export default function ManagerDashboard() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { logout, user } = useAuth();
   const [uploads, setUploads] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [comment, setComment] = useState("");
+  const [threadComments, setThreadComments] = useState([]);
   const [acting, setActing] = useState("");
   const [openedDeepLink, setOpenedDeepLink] = useState("");
+  const [tokenError, setTokenError] = useState(null);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueError, setQueueError] = useState("");
   const [queueSearch, setQueueSearch] = useState("");
   const [queueStatus, setQueueStatus] = useState("");
 
   const loadQueue = useCallback(async () => {
-    const response = await api.get("/uploads");
-    setUploads(response.data);
+    setQueueLoading(true);
+    setQueueError("");
+    try {
+      const response = await api.get("/uploads");
+      setUploads(response.data);
+    } catch (err) {
+      setQueueError(err.response?.data?.detail || "Unable to load approvals. Please try again.");
+    } finally {
+      setQueueLoading(false);
+    }
   }, []);
 
   useEffect(() => {
+    if (user?.role !== "manager") return;
     loadQueue();
-  }, [loadQueue]);
+  }, [loadQueue, user?.id, user?.role]);
 
   useEffect(() => {
+    const token = searchParams.get("token");
+    if (!user?.id) return;
+
+    if (token) {
+      api.get(`/approvals/verify-token?token=${token}`)
+        .then((res) => {
+          const intendedManagerId = res.data.manager_id;
+          if (intendedManagerId && user?.id !== intendedManagerId) {
+            return logout().finally(() => {
+              navigate("/login", { replace: true, state: { from: location } });
+            });
+          }
+
+          const submissionId = res.data.submission_id;
+          if (openedDeepLink === submissionId) return;
+          return Promise.all([
+            api.get(`/uploads/${submissionId}`),
+            loadQueue()
+          ]).then(([r]) => {
+            setSelected(r.data);
+            setThreadComments([]);
+            setOpenedDeepLink(submissionId);
+          });
+        })
+        .catch((err) => {
+          setTokenError(
+            err.response?.data?.detail || "This review link has expired or is invalid."
+          );
+        });
+      return;
+    }
+
     const submissionId = searchParams.get("submission_id");
     if (!submissionId || openedDeepLink === submissionId) return;
 
     async function openDeepLink() {
       const response = await api.get(`/uploads/${submissionId}`);
       setSelected(response.data);
-      setComment("");
+      setThreadComments([]);
       setOpenedDeepLink(submissionId);
     }
 
     openDeepLink().catch(() => setOpenedDeepLink(submissionId));
-  }, [openedDeepLink, searchParams]);
+  }, [loadQueue, openedDeepLink, searchParams, user?.id]);
 
   useWebSocket("manager", useCallback((event) => {
     if (["new_upload", "upload.new", "upload_reviewed", "approval.decision"].includes(event.event)) loadQueue();
@@ -47,17 +96,27 @@ export default function ManagerDashboard() {
   async function openUpload(upload) {
     const response = await api.get(`/uploads/${upload.id}`);
     setSelected(response.data);
-    setComment("");
+    setThreadComments([]);
   }
+
+  async function openVersion(versionId) {
+    const response = await api.get(`/uploads/${versionId}`);
+    setSelected(response.data);
+    setThreadComments([]);
+  }
+
+  const handleThreadCommentsChange = useCallback((comments) => {
+    setThreadComments(comments);
+  }, []);
 
   async function review(decision) {
     if (!selected) return;
     setActing(decision);
     try {
       const endpoint = decision === "approve" ? "approve" : decision === "reupload" ? "request-reupload" : "reject";
-      await api.post(`/approvals/${selected.upload_id}/${endpoint}`, { comment });
+      await api.post(`/approvals/${selected.upload_id}/${endpoint}`, {});
       setSelected(null);
-      setComment("");
+      setThreadComments([]);
       loadQueue();
     } finally {
       setActing("");
@@ -67,6 +126,7 @@ export default function ManagerDashboard() {
   const pending = uploads.filter((upload) => upload.status === "pending").length;
   const approved = uploads.filter((upload) => upload.status === "approved").length;
   const declined = uploads.filter((upload) => upload.status === "declined").length;
+  const hasManagerThreadFeedback = threadComments.some((comment) => comment.user_id === user?.id);
   const queueItems = useMemo(() => {
     const search = queueSearch.trim().toLowerCase();
     return uploads.filter((upload) => {
@@ -79,14 +139,31 @@ export default function ManagerDashboard() {
 
   return (
     <div className="app-page" style={{ padding: "24px 28px", background: "#F7F5F0", minHeight: "100vh", display: "grid", gridTemplateColumns: "1fr" }}>
+      {tokenError && (
+        <div style={{
+          background: "#fcebeb",
+          border: "0.5px solid #a32d2d",
+          borderRadius: 8,
+          padding: "12px 16px",
+          color: "#a32d2d",
+          fontSize: 13,
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 8
+        }}>
+          <FiX size={16} style={{ flexShrink: 0 }} />
+          {tokenError}
+        </div>
+      )}
       {/* Header Section */}
       <section className="flex flex-wrap items-center justify-between gap-4 animate-slide-in-top" style={{ marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 500, color: "#0a3d2e", margin: 0, marginBottom: 4 }}>Manager Dashboard</h1>
           <p style={{ fontSize: 13, color: "#6b9080", margin: 0 }}>Review pending uploads and manage approval decisions.</p>
         </div>
-        <button className="secondary-button" onClick={loadQueue}>
-          <FiRefreshCw size={16} /> Refresh queue
+        <button className="secondary-button" onClick={loadQueue} disabled={queueLoading}>
+          <FiRefreshCw size={16} /> {queueLoading ? "Refreshing..." : "Refresh queue"}
         </button>
       </section>
 
@@ -99,7 +176,7 @@ export default function ManagerDashboard() {
       </section>
 
       {/* Main Content - Queue and Review */}
-      <section style={{ display: "grid", gridTemplateColumns: "380px 1fr", gap: 20 }} className="xl:grid-cols-[380px_1fr]">
+      <section className="manager-review-layout" style={{ display: "grid", gridTemplateColumns: "minmax(280px, 380px) 1fr", gap: 20, minWidth: 0 }}>
         {/* LEFT: Approval Queue */}
         <div className="elevated-panel overflow-hidden animate-slide-in-left" style={{ animationDelay: "0.1s" }}>
           <div style={{
@@ -146,7 +223,28 @@ export default function ManagerDashboard() {
           </div>
 
           <div style={{ divideY: "1px", divideColor: "#D9E3DD" }}>
-            {queueItems.map((upload) => (
+            {queueError && (
+              <div style={{
+                padding: 16,
+                fontSize: 13,
+                color: "#a32d2d",
+                background: "#fcebeb",
+                borderBottom: "0.5px solid #f2c7c7"
+              }}>
+                {queueError}
+              </div>
+            )}
+            {queueLoading && !queueItems.length && (
+              <div style={{
+                padding: 32,
+                textAlign: "center",
+                fontSize: 13,
+                color: "#6b9080"
+              }}>
+                Loading approvals...
+              </div>
+            )}
+            {!queueLoading && queueItems.map((upload) => (
               <button
                 key={upload.id}
                 onClick={() => openUpload(upload)}
@@ -196,7 +294,7 @@ export default function ManagerDashboard() {
                 </div>
               </button>
             ))}
-            {!queueItems.length && (
+            {!queueLoading && !queueItems.length && !queueError && (
               <div style={{
                 padding: 32,
                 textAlign: "center",
@@ -218,7 +316,7 @@ export default function ManagerDashboard() {
             {selected ? (
               <div style={{ space: 16, display: "grid", gap: 16 }}>
                 {/* File Info Grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                <div className="manager-info-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                   <InfoTile label="File" value={selected.filename} />
                   <InfoTile label="Rows" value={selected.total_rows} />
                   <InfoTile label="Status" value={selected.status} />
@@ -226,6 +324,21 @@ export default function ManagerDashboard() {
 
                 {/* Milestones */}
                 <ProgressMilestones status={selected.status} createdAt={selected.created_at} reviewedAt={selected.reviewed_at} />
+
+                {selected.version_history?.length > 1 && (
+                  <div className="version-tabs">
+                    {selected.version_history.map((version) => (
+                      <button
+                        key={version.id}
+                        className={version.id === selected.upload_id ? "is-active" : ""}
+                        onClick={() => openVersion(version.id)}
+                      >
+                        v{version.version_number}
+                        <span>{version.status}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {/* Columns */}
                 <div>
@@ -241,57 +354,23 @@ export default function ManagerDashboard() {
                   </div>
                 </div>
 
-                {/* Comment Box */}
-                <label style={{ display: "block" }}>
-                  <span style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    textTransform: "uppercase",
-                    color: "#3a6655",
-                    marginBottom: 8,
-                    letterSpacing: "0.06em"
-                  }}>
-                    <FiMessageSquare size={14} /> Manager Comment
-                  </span>
-                  <textarea
-                    style={{
-                      width: "100%",
-                      minHeight: 96,
-                      borderWidth: "0.5px",
-                      borderColor: "#D9E3DD",
-                      background: "#FBFAF6",
-                      padding: 12,
-                      fontSize: 13,
-                      color: "#0a3d2e",
-                      outline: "none",
-                      transition: "all 0.15s ease",
-                      borderRadius: 8,
-                      fontFamily: "inherit"
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = "#155E58";
-                      e.target.style.background = "#fff";
-                      e.target.style.boxShadow = "0 0 0 3px rgba(58, 191, 177, 0.14)";
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = "#D9E3DD";
-                      e.target.style.background = "#FBFAF6";
-                      e.target.style.boxShadow = "none";
-                    }}
-                    placeholder="Add feedback or notes for the uploader..."
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                  />
-                </label>
+                <CommentThread
+                  submissionId={selected.upload_id}
+                  title="Review conversation"
+                  onCommentsChange={handleThreadCommentsChange}
+                />
+
+                {!hasManagerThreadFeedback && selected.status === "pending" && (
+                  <div className="comment-action-hint">
+                    Add your feedback in the conversation thread before rejecting or requesting re-upload.
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                   <button
                     onClick={() => review("reject")}
-                    disabled={selected.status !== "pending" || !!acting}
+                    disabled={selected.status !== "pending" || !!acting || !hasManagerThreadFeedback}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -303,12 +382,12 @@ export default function ManagerDashboard() {
                       color: "#a32d2d",
                       fontSize: 13,
                       fontWeight: 500,
-                      cursor: selected.status === "pending" && !acting ? "pointer" : "not-allowed",
+                      cursor: selected.status === "pending" && !acting && hasManagerThreadFeedback ? "pointer" : "not-allowed",
                       transition: "all 0.15s ease",
-                      opacity: selected.status === "pending" && !acting ? 1 : 0.5
+                      opacity: selected.status === "pending" && !acting && hasManagerThreadFeedback ? 1 : 0.5
                     }}
                     onMouseEnter={(e) => {
-                      if (selected.status === "pending" && !acting) {
+                      if (selected.status === "pending" && !acting && hasManagerThreadFeedback) {
                         e.target.style.background = "#fcebeb";
                       }
                     }}
@@ -321,7 +400,7 @@ export default function ManagerDashboard() {
 
                   <button
                     onClick={() => review("reupload")}
-                    disabled={selected.status !== "pending" || !!acting}
+                    disabled={selected.status !== "pending" || !!acting || !hasManagerThreadFeedback}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -333,12 +412,12 @@ export default function ManagerDashboard() {
                       color: "#1E8278",
                       fontSize: 13,
                       fontWeight: 500,
-                      cursor: selected.status === "pending" && !acting ? "pointer" : "not-allowed",
+                      cursor: selected.status === "pending" && !acting && hasManagerThreadFeedback ? "pointer" : "not-allowed",
                       transition: "all 0.15s ease",
-                      opacity: selected.status === "pending" && !acting ? 1 : 0.5
+                      opacity: selected.status === "pending" && !acting && hasManagerThreadFeedback ? 1 : 0.5
                     }}
                     onMouseEnter={(e) => {
-                      if (selected.status === "pending" && !acting) {
+                      if (selected.status === "pending" && !acting && hasManagerThreadFeedback) {
                         e.target.style.background = "#E7F5F1";
                       }
                     }}

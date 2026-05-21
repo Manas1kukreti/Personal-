@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.security import require_roles
 from app.db.session import get_db
 from app.models import PaymentMethod, Review, ReviewStatus, Submission, TransactionRow, TransactionStatus, TransactionType, User, UserRole
-from app.schemas import UploadPreview, UploadSummary
+from app.schemas import UploadPreview, UploadSummary, UploadVersionRead
 from app.services.email import manager_submission_link, send_email
 from app.services.excel_parser import parse_spreadsheet, validate_extension
 from app.services.websocket_manager import ws_manager
@@ -39,6 +39,44 @@ async def create_upload(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee)),
 ) -> UploadPreview:
+    return await save_upload(file=file, db=db, user=user)
+
+
+@router.post("/{submission_id}/reupload", response_model=UploadPreview)
+async def reupload_submission(
+    submission_id: UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.employee)),
+) -> UploadPreview:
+    original = (
+        await db.execute(select(Submission).where(Submission.id == submission_id))
+    ).scalar_one_or_none()
+    if not original or original.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if original.review_status != ReviewStatus.reupload_requested:
+        raise HTTPException(status_code=409, detail="Re-upload is only available when requested by a manager")
+    root_submission_id = original.parent_submission_id or original.id
+    latest_version = (
+        await db.scalar(
+            select(func.max(Submission.version_number)).where(
+                (Submission.id == root_submission_id) | (Submission.parent_submission_id == root_submission_id)
+            )
+        )
+        or original.version_number
+    )
+    if original.version_number < latest_version:
+        raise HTTPException(status_code=409, detail="A newer version has already been submitted")
+    return await save_upload(file=file, db=db, user=user, parent_submission=original)
+
+
+async def save_upload(
+    *,
+    file: UploadFile,
+    db: AsyncSession,
+    user: User,
+    parent_submission: Submission | None = None,
+) -> UploadPreview:
     settings = get_settings()
     try:
         ext = validate_extension(file.filename or "")
@@ -55,12 +93,28 @@ async def create_upload(
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
+    root_submission_id = None
+    version_number = 1
+    if parent_submission:
+        root_submission_id = parent_submission.parent_submission_id or parent_submission.id
+        version_number = (
+            await db.scalar(
+                select(func.max(Submission.version_number)).where(
+                    (Submission.id == root_submission_id) | (Submission.parent_submission_id == root_submission_id)
+                )
+            )
+            or parent_submission.version_number
+            or 1
+        ) + 1
+
     submission = Submission(
         user_id=user.id,
         file_name=file.filename or "upload",
         file_path="pending",
         file_size_bytes=len(contents),
         original_filename=file.filename or "upload",
+        version_number=version_number,
+        parent_submission_id=root_submission_id,
     )
     db.add(submission)
     await db.flush()
@@ -98,20 +152,22 @@ async def create_upload(
     await ws_manager.broadcast("manager", "upload.new", payload)
     await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
     if manager:
-        await send_email(
-            manager.email,
-            "New upload pending review",
-            (
-                f"Hello {manager.full_name},\n\n"
-                f"{user.full_name} submitted {submission.file_name} for review.\n\n"
-                f"Open it here: {manager_submission_link(submission.id)}"
-            ),
-        )
+            await send_email(
+                manager.email,
+                "New upload pending review",
+                (
+                    f"Hello {manager.full_name},\n\n"
+                    f"{user.full_name} submitted {submission.file_name} for review.\n\n"
+                    f"Open it here: {manager_submission_link(submission.id, manager.id)}"
+                ),
+            )
 
     return UploadPreview(
         upload_id=submission.id,
         filename=submission.file_name,
         status=submission.review_status.value,
+        version_number=submission.version_number,
+        parent_submission_id=submission.parent_submission_id,
         total_rows=len(rows),
         total_columns=len(TRANSACTION_COLUMNS),
         created_at=submission.uploaded_at,
@@ -119,6 +175,7 @@ async def create_upload(
         detected_types=parsed["detected_types"],
         validation=parsed["validation"],
         preview_rows=[transaction_row_to_dict(row) for row in rows[: settings.max_preview_rows]],
+        version_history=await get_version_history(db, submission),
     )
 
 
@@ -151,6 +208,8 @@ async def list_uploads(
             id=submission.id,
             filename=submission.file_name,
             status=submission.review_status.value,
+            version_number=submission.version_number,
+            parent_submission_id=submission.parent_submission_id,
             total_rows=row_count,
             total_columns=len(TRANSACTION_COLUMNS),
             uploader_name=submission.user.full_name if submission.user else None,
@@ -189,6 +248,8 @@ async def get_upload(
         upload_id=submission.id,
         filename=submission.file_name,
         status=submission.review_status.value,
+        version_number=submission.version_number,
+        parent_submission_id=submission.parent_submission_id,
         total_rows=row_count or 0,
         total_columns=len(TRANSACTION_COLUMNS),
         created_at=submission.uploaded_at,
@@ -197,7 +258,31 @@ async def get_upload(
         detected_types={},
         validation={"valid": True, "schema": "financial_transactions", "currency": "INR"},
         preview_rows=[transaction_row_to_dict(row) for row in rows],
+        version_history=await get_version_history(db, submission),
     )
+
+
+async def get_version_history(db: AsyncSession, submission: Submission) -> list[UploadVersionRead]:
+    root_submission_id = submission.parent_submission_id or submission.id
+    versions = (
+        await db.execute(
+            select(Submission)
+            .options(selectinload(Submission.review))
+            .where((Submission.id == root_submission_id) | (Submission.parent_submission_id == root_submission_id))
+            .order_by(Submission.version_number)
+        )
+    ).scalars().all()
+    return [
+        UploadVersionRead(
+            id=version.id,
+            filename=version.file_name,
+            status=version.review_status.value,
+            version_number=version.version_number,
+            created_at=version.uploaded_at,
+            reviewed_at=version.review.reviewed_at if version.review else None,
+        )
+        for version in versions
+    ]
 
 
 def verify_upload_access(submission: Submission, user: User) -> None:

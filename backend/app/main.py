@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-from app.api import admin, agent, analytics, approvals, auth, uploads, websockets
+from app.api import admin, agent, analytics, approvals, auth, comments, uploads, websockets
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal
@@ -26,6 +26,7 @@ app.include_router(approvals.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(comments.router, prefix="/api")
 app.include_router(websockets.router)
 
 

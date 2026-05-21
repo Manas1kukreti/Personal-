@@ -7,9 +7,9 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import require_roles
 from app.db.session import get_db
-from app.models import Review, ReviewAction, ReviewStatus, Submission, User, UserRole
+from app.models import Review, ReviewAction, ReviewStatus, Submission, SubmissionComment, User, UserRole
 from app.schemas import ApprovalActionRequest, ApprovalRequest, RejectActionRequest, RejectRequest, ReuploadActionRequest, ReuploadRequest
-from app.services.email import send_email
+from app.services.email import send_email, verify_review_token
 from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -23,6 +23,34 @@ async def approve_upload_by_body(
 ) -> dict:
     return await create_review(request.upload_id, ReviewAction.approved, request.comment, db, manager)
 
+@router.get("/verify-token")
+async def verify_review_link_token(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        payload = verify_review_token(token)
+    except ValueError as e:
+        raise HTTPException(status_code=410, detail=str(e))
+
+    submission_id = payload["submission_id"]
+    submission = (
+        await db.execute(
+            select(Submission)
+            .options(selectinload(Submission.user))
+            .where(Submission.id == submission_id)
+        )
+    ).scalar_one_or_none()
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    return {
+        "submission_id": submission_id,
+        "manager_id": payload["manager_id"],
+        "filename": submission.file_name,
+        "status": submission.review_status.value,
+    }
 
 @router.post("/{upload_id}/approve")
 async def approve_upload(
@@ -88,29 +116,38 @@ async def create_review(
         raise HTTPException(status_code=404, detail="Submission not found")
     if submission.review_status != ReviewStatus.pending:
         raise HTTPException(status_code=409, detail=f"Submission is already {submission.review_status.value}")
-    if action != ReviewAction.approved and not comment:
-        raise HTTPException(status_code=422, detail="Comment is required for declined or reupload_requested reviews")
+    if action != ReviewAction.approved:
+        has_thread_feedback = (
+            await db.execute(
+                select(SubmissionComment.id)
+                .where(SubmissionComment.submission_id == submission.id)
+                .where(SubmissionComment.user_id == manager.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not has_thread_feedback:
+            raise HTTPException(
+                status_code=422,
+                detail="Add feedback in the conversation thread before rejecting or requesting re-upload.",
+            )
 
     submission.review_status = ReviewStatus(action.value)
-    db.add(Review(submission_id=submission.id, manager_id=manager.id, action=action, comment=comment))
+    db.add(Review(submission_id=submission.id, manager_id=manager.id, action=action, comment=None))
     await db.commit()
 
     payload = {"upload_id": submission.id, "status": submission.review_status.value, "filename": submission.file_name}
-    if comment:
-        payload["comment"] = comment
     await ws_manager.broadcast("uploads", "upload_status", payload)
     await ws_manager.broadcast("uploads", "approval.decision", payload)
     await ws_manager.broadcast("manager", "upload_reviewed", payload)
     await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
     await ws_manager.broadcast("dashboard", "kpi.update", payload)
-    comment_line = f"\n\nManager comment: {comment}" if comment else ""
     await send_email(
         submission.user.email,
         f"Upload {submission.review_status.value}",
         (
             f"Hello {submission.user.full_name},\n\n"
             f"Your upload {submission.file_name} was marked {submission.review_status.value}."
-            f"{comment_line}"
+            "\n\nOpen LedgerFlow to view the conversation thread."
         ),
     )
     return {"message": f"Submission {submission.review_status.value}", **payload}

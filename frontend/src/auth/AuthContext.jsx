@@ -46,13 +46,13 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  setSession(null);
   try {
-    await api.post("/auth/logout");  
+    await api.post("/auth/logout");
   } catch {
     
   }
-  localStorage.removeItem(AUTH_STORAGE_KEY);
-  setSession(null);
 }
 
   useEffect(() => {

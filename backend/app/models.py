@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -74,6 +74,7 @@ class User(Base):
 
     submissions: Mapped[list["Submission"]] = relationship(back_populates="user", foreign_keys="Submission.user_id")
     reviews: Mapped[list["Review"]] = relationship(back_populates="manager", foreign_keys="Review.manager_id")
+    comments: Mapped[list["SubmissionComment"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     manager: Mapped["User | None"] = relationship(remote_side=[id], back_populates="employees", foreign_keys=[manager_id])
     employees: Mapped[list["User"]] = relationship(back_populates="manager", foreign_keys=[manager_id])
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -105,16 +106,13 @@ class Submission(Base):
     parent_submission: Mapped["Submission | None"] = relationship(remote_side=[id])
     review: Mapped["Review | None"] = relationship(back_populates="submission", cascade="all, delete-orphan")
     transaction_rows: Mapped[list["TransactionRow"]] = relationship(back_populates="submission", cascade="all, delete-orphan")
+    comments: Mapped[list["SubmissionComment"]] = relationship(back_populates="submission", cascade="all, delete-orphan")
 
 
 class Review(Base):
     __tablename__ = "reviews"
     __table_args__ = (
         UniqueConstraint("submission_id", name="uq_reviews_submission_id"),
-        CheckConstraint(
-            "(action = 'approved') OR (comment IS NOT NULL AND length(trim(comment)) > 0)",
-            name="ck_reviews_comment_required",
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -129,6 +127,19 @@ class Review(Base):
 
     submission: Mapped[Submission] = relationship(back_populates="review")
     manager: Mapped[User] = relationship(back_populates="reviews")
+
+
+class SubmissionComment(Base):
+    __tablename__ = "submission_comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    submission: Mapped[Submission] = relationship(back_populates="comments")
+    user: Mapped[User] = relationship(back_populates="comments")
 
 
 class TransactionRow(Base):

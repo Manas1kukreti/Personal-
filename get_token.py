@@ -1,13 +1,13 @@
 import httpx
 
-base_url = "https://personal-production-0492.up.railway.app"
+base_url = "http://localhost:8000"
 
 # Step 1 - Login
 login = httpx.post(
     f"{base_url}/api/agent/login",
     json={
-        "email": "agentmailak44@gmail.com",  # AGENT_EMAIL
-        "password": "AgentPassword4382"            # AGENT_PASSWORD
+        "email": "posting-agent@ledgerflow.com",  # AGENT_EMAIL
+        "password":"local-agent-password"    # AGENT_PASSWORD
     }
 )
 print(login.status_code)

@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext.jsx";
 import ProtectedRoute from "./auth/ProtectedRoute.jsx";
 import AppShell from "./shell/AppShell.jsx";
@@ -15,8 +15,18 @@ import "./styles.css";
 
 function HomeRedirect() {
   const { isAuthenticated, user } = useAuth();
-  const home = user?.role === "admin" ? "/admin" : user?.role === "manager" ? "/manager" : "/dashboard";
-  return <Navigate to={isAuthenticated ? home : "/login"} replace />;
+  const location = useLocation();
+
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+
+  const from = location.state?.from?.pathname;
+  if (from && from !== "/") return <Navigate to={from} replace />;
+  const home =
+    user?.role === "admin" ? "/admin" :
+    user?.role === "manager" ? "/manager" :
+    "/dashboard";
+
+  return <Navigate to={home} replace />;
 }
 
 createRoot(document.getElementById("root")).render(
@@ -26,7 +36,7 @@ createRoot(document.getElementById("root")).render(
         <Routes>
           <Route path="/" element={<HomeRedirect />} />
           <Route path="/login" element={<AuthPage />} />
-          <Route element={<ProtectedRoute />}>
+          <Route element={<ProtectedRoute roles={["employee", "manager", "admin"]} />}>
             <Route element={<AppShell />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/uploads" element={<UploadCenter />} />

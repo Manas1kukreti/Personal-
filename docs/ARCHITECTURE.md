@@ -2,13 +2,13 @@
 
 ## Current System Overview
 
-LedgerFlow Analytics is a full-stack financial transaction upload, validation, approval, assignment, and analytics platform.
+LedgerFlow Analytics is a full-stack financial transaction upload, validation, approval, discussion, re-upload, assignment, and analytics platform.
 
-The project is built around three main application layers:
+The system has three primary layers:
 
-- React SPA: authentication, protected routing, employee upload workflow, KPI dashboard, manager review dashboard, and admin assignment dashboard.
-- FastAPI backend: JWT authentication, role-based access control, spreadsheet parsing, validation, review workflow, admin assignment, agent upload endpoints, analytics aggregation, optional email notifications, and WebSocket notifications.
-- PostgreSQL database: users, manager assignments, submissions, reviews, and normalized transaction rows.
+- React SPA: authentication, protected routing, employee upload workflow, submission history, comment threads, manager review dashboard, admin assignment dashboard, and KPI analytics.
+- FastAPI backend: JWT and refresh-token authentication, role-based access control, spreadsheet parsing, validation, review workflow, versioned re-uploads, submission comments, admin assignment, agent upload endpoints, analytics aggregation, optional email notifications, and WebSocket notifications.
+- PostgreSQL database: users, refresh tokens, manager assignments, submissions, reviews, submission comments, and normalized transaction rows.
 
 The active business flow expects a financial transaction spreadsheet with a fixed schema and stores each valid row in typed transaction columns.
 
@@ -19,6 +19,7 @@ Browser
   React + Vite SPA
     AuthContext stores JWT session in localStorage
     Axios client sends Bearer tokens to /api/*
+    Axios refreshes access token through /api/auth/refresh
     WebSocket client listens on /ws/{channel}
         |
         v
@@ -26,6 +27,7 @@ FastAPI API
   Auth router
   Agent router
   Upload router
+  Comment router
   Approval router
   Admin router
   Analytics router
@@ -34,24 +36,32 @@ FastAPI API
         v
 PostgreSQL
   users
+  refresh_tokens
   submissions
+  submission_comments
   reviews
   transaction_rows
 ```
 
-Local development can run either as separate services or through Docker Compose:
+Local Docker Compose services:
 
-- PostgreSQL runs on host port `5433`.
-- Backend runs on port `8000`.
-- Frontend runs on port `5173`.
-- Uploaded files are stored under the backend upload directory, or in the `backend_uploads` Docker volume.
+- `postgres`: PostgreSQL 16 on host port `5433`.
+- `backend`: FastAPI on host port `8000`.
+- `frontend`: built frontend served on host port `5173`.
+- Uploaded files live under the backend upload directory or the `backend_uploads` Docker volume.
+
+The backend container runs Alembic migrations on startup:
+
+```text
+alembic -c alembic.ini upgrade head
+```
 
 ## User Roles
 
-The system currently supports three roles:
+The system supports three roles:
 
-- `employee`: can register/login, upload financial transaction spreadsheets, list own uploads, view own upload previews, and view scoped analytics.
-- `manager`: can register/login, view assigned employee uploads and analytics, approve submissions, decline submissions, or request reupload with comments.
+- `employee`: can register/login, upload financial transaction spreadsheets, list own uploads, view own upload previews, comment on own submissions, re-upload when requested, and view scoped analytics.
+- `manager`: can register/login, view assigned employee uploads and analytics, comment on assigned submissions, approve submissions, decline submissions, or request re-upload.
 - `admin`: is seeded from environment settings, can list managers, list employees, assign employees to managers, reassign employees, view uploads, and view analytics.
 
 Protected routes are enforced in both layers:
@@ -59,32 +69,57 @@ Protected routes are enforced in both layers:
 - Frontend: `ProtectedRoute.jsx` redirects unauthenticated users to `/login`, blocks non-managers from `/manager`, and blocks non-admins from `/admin`.
 - Backend: `require_roles(...)` validates the JWT and checks the user role before protected API actions run.
 
-Manager review access is assignment-scoped. A manager can only list, preview, or review submissions where the uploading employee's `manager_id` equals that manager's user id.
+Manager access is assignment-scoped. A manager can only list, preview, comment on, or review submissions where the uploading employee's `manager_id` equals that manager's user id.
 
 ## Authentication Design
 
-Authentication uses bearer JWTs.
+Authentication uses short-lived bearer JWTs plus refresh-token cookies.
 
 Flow:
 
 1. A user registers through `POST /api/auth/register` or logs in through `POST /api/auth/login`.
-2. The backend validates credentials and returns an access token plus user profile.
-3. The React `AuthContext` stores the session under `ledgerflow_auth` in `localStorage`.
+2. The backend validates credentials, stores a hashed refresh token, sets the `refresh_token` cookie, and returns an access token plus user profile.
+3. The React `AuthContext` stores the access-token session under `ledgerflow_auth` in `localStorage`.
 4. The Axios client adds `Authorization: Bearer <token>` to API requests.
 5. On app load, `GET /api/auth/me` validates the stored token and refreshes the user context.
-6. If the API returns an unexpected `401`, the frontend clears the session and redirects to `/login`.
+6. If a protected API returns `401`, the Axios client attempts `POST /api/auth/refresh`.
+7. If refresh fails, the frontend clears local session state and redirects to `/login`.
 
 Security implementation:
 
-- Passwords are hashed with `passlib` using `pbkdf2_sha256`.
-- JWTs are signed with `HS256`.
-- Token lifetime is controlled by `ACCESS_TOKEN_EXPIRE_MINUTES`.
+- Passwords are hashed with `passlib`.
+- JWTs are signed with the configured algorithm, currently `HS256`.
+- Access-token lifetime is controlled by `ACCESS_TOKEN_EXPIRE_MINUTES`.
+- Refresh-token lifetime is currently 30 days in `backend/app/core/security.py`.
+- Refresh tokens are stored as SHA-256 hashes in the `refresh_tokens` table.
 - CORS origins are controlled by `CORS_ORIGINS`.
 - Public registration allows `employee` and `manager` roles.
-- Admin accounts are created through startup seeding from `DEFAULT_ADMIN_*` environment variables.
+- Admin accounts are created through startup seeding from `DEFAULT_ADMIN_*`.
 - If `AGENT_EMAIL` and `AGENT_PASSWORD` are configured, startup also seeds an employee account for the agent upload API.
 
 Production validation in `backend/app/core/config.py` rejects unsafe default secrets, localhost database URLs, localhost CORS origins, weak admin passwords, and partially configured agent credentials.
+
+## Email Review Links And Session Safety
+
+Manager review links are generated in `backend/app/services/email.py`:
+
+```text
+{FRONTEND_BASE_URL}/manager?token=<signed-review-token>
+```
+
+The token contains:
+
+- `submission_id`
+- `manager_id`
+- expiration
+- purpose: `review_link`
+
+Frontend behavior:
+
+- `AuthPage.jsx` preserves the full requested destination including `pathname`, `search`, and `hash`.
+- `ManagerDashboard.jsx` verifies `token` through `GET /api/approvals/verify-token`.
+- If the currently logged-in manager id does not match the token's intended `manager_id`, the app logs out the stale user and redirects to login while preserving the original link.
+- This prevents a browser session from opening a mail link under the previously logged-in manager.
 
 ## Frontend Structure
 
@@ -92,20 +127,22 @@ Production validation in `backend/app/core/config.py` rejects unsafe default sec
 frontend/
   src/
     api/
-      client.js              Axios API client and WebSocket URL helper
+      client.js              Axios API client, refresh handling, WebSocket URL helper
     auth/
       AuthContext.jsx        Login/register/logout/session validation
       ProtectedRoute.jsx     Route guard and role guard
     components/
+      CommentThread.jsx      Submission discussion thread with real-time updates
       DataTable.jsx          Reusable table for preview and dashboard data
-      ProgressMilestones.jsx Upload workflow progress UI
+      ProgressMilestones.jsx Upload/review progress UI
     hooks/
       useWebSocket.js        WebSocket subscription helper
     pages/
       AdminDashboard.jsx     Admin manager/employee assignment UI
       AuthPage.jsx           Login and registration UI
       Dashboard.jsx          KPI and analytics dashboard
-      ManagerDashboard.jsx   Review queue and approval actions
+      ManagerDashboard.jsx   Review queue, deep links, comments, version tabs, actions
+      SubmissionsPage.jsx    Employee upload history, comments, re-upload action
       UploadCenter.jsx       File upload and validation preview
     shell/
       AppShell.jsx           Authenticated app layout/navigation
@@ -116,12 +153,14 @@ frontend/
 Current route map:
 
 ```text
-/          -> redirects to role home or /login
-/login     -> public login/register page
-/dashboard -> authenticated employee or manager dashboard
-/uploads   -> authenticated employee or manager upload center
-/manager   -> manager-only review dashboard
-/admin     -> admin-only assignment dashboard
+/            -> redirects to role home or /login
+/login       -> public login/register page
+/dashboard   -> authenticated employee, manager, or admin dashboard
+/uploads     -> authenticated employee, manager, or admin upload center route
+/submissions -> authenticated employee, manager, or admin submission history
+/settings    -> authenticated account settings
+/manager     -> manager-only review dashboard
+/admin       -> admin-only assignment dashboard
 ```
 
 ## Backend Structure
@@ -133,13 +172,14 @@ backend/
       admin.py         Manager/employee listing and assignment endpoints
       agent.py         Agent login and upload endpoints
       analytics.py     KPI, workflow totals, trends, latest transactions
-      approvals.py     Approve, decline, and request-reupload actions
-      auth.py          Register, login, current-user endpoints
-      uploads.py       Spreadsheet upload, validation, preview, listing
+      approvals.py     Approve, decline, request-reupload, review-link verification
+      auth.py          Register, login, refresh, logout, current user, settings
+      comments.py      Submission discussion thread endpoints
+      uploads.py       Upload, re-upload, validation, preview, listing, versions
       websockets.py    /ws/{channel} endpoint
     core/
       config.py        Environment-backed settings and production validation
-      security.py      Password hashing, JWTs, role dependencies
+      security.py      Password hashing, JWTs, refresh tokens, role dependencies
     db/
       session.py       Async SQLAlchemy engine/session
     services/
@@ -190,12 +230,12 @@ Validation behavior:
 
 1. An employee uploads a `.xlsx` or `.csv` file to `POST /api/uploads`.
 2. The backend validates file extension, size, and non-empty content.
-3. A `submissions` record is created with `review_status='pending'`.
+3. A `submissions` row is created with `review_status='pending'`, `version_number=1`, and no parent.
 4. The raw file is written to the configured upload directory.
 5. Pandas/OpenPyXL parses the spreadsheet.
 6. `excel_parser.py` validates the required financial transaction schema.
 7. Valid records are converted into typed `transaction_rows`.
-8. The upload returns a preview response with columns, row count, detected types, validation metadata, and preview rows.
+8. The upload returns a preview response with columns, row count, detected types, validation metadata, preview rows, and version history.
 9. WebSocket events notify upload, manager, and dashboard clients.
 10. If the uploading employee has an assigned manager and email is enabled, the manager receives a review notification.
 
@@ -209,20 +249,80 @@ Available actions:
 
 - Approve: `POST /api/approvals/{upload_id}/approve` or `POST /api/approvals/approve`
 - Decline: `POST /api/approvals/{upload_id}/reject` or `POST /api/approvals/reject`
-- Request reupload: `POST /api/approvals/{upload_id}/request-reupload` or `POST /api/approvals/request-reupload`
+- Request re-upload: `POST /api/approvals/{upload_id}/request-reupload` or `POST /api/approvals/request-reupload`
 
 Workflow:
 
 1. A submission starts in `pending`.
-2. The assigned manager reviews the parsed transaction rows.
+2. The assigned manager reviews the parsed transaction rows and can discuss issues in the submission thread.
 3. Approving changes `submissions.review_status` to `approved` and creates a `reviews` row.
-4. Declining changes status to `declined`; a comment is required.
-5. Requesting reupload changes status to `reupload_requested`; a comment is required.
+4. Declining changes status to `declined`; the manager must first post feedback in the submission comment thread.
+5. Requesting re-upload changes status to `reupload_requested`; the manager must first post feedback in the submission comment thread.
 6. The database enforces one review per submission.
 7. WebSocket events refresh upload status, manager queues, and dashboard KPIs.
-8. If email is enabled, the uploading employee receives the review decision and any comment.
+8. If email is enabled, the uploading employee receives the review decision and can open LedgerFlow to see the thread.
+
+Review feedback no longer lives primarily in `reviews.comment`. It lives in `submission_comments`. The `reviews.comment` column remains for compatibility but may be null.
 
 Approved data is not copied into a separate table. All uploaded transaction rows stay in `transaction_rows`, and approval state is represented by the parent `submissions.review_status`.
+
+## Submission Comment Thread
+
+Submission comments are handled by `backend/app/api/comments.py`.
+
+Endpoints:
+
+- `GET /api/submissions/{submission_id}/comments`
+- `POST /api/submissions/{submission_id}/comments`
+
+Rules:
+
+- Employees can comment on their own submissions.
+- Managers can comment on submissions from assigned employees.
+- Admins can access comments for all submissions.
+- Access is checked using the same visibility rule as upload preview access.
+- New comments broadcast a `new_comment` WebSocket event.
+- When manager comments, employee gets a best-effort email notification.
+- When employee comments, assigned manager gets a best-effort email notification.
+
+Frontend:
+
+- `CommentThread.jsx` fetches existing comments, subscribes to the `comments` WebSocket channel, and appends new real-time comments.
+- `ManagerDashboard.jsx` embeds the thread in the review panel.
+- `SubmissionsPage.jsx` lets employees open a conversation for each submission.
+
+## Re-Upload And Versioning Workflow
+
+The schema already contains:
+
+- `submissions.parent_submission_id`
+- `submissions.version_number`
+
+Endpoint:
+
+- `POST /api/uploads/{submission_id}/reupload`
+
+Rules:
+
+- Only the employee who owns the submission can re-upload.
+- The target submission must have status `reupload_requested`.
+- If a newer version already exists, re-uploading the older version is blocked.
+- A re-upload creates a new `submissions` row and new `transaction_rows`.
+- The root submission is the first version. Later versions point to the root via `parent_submission_id`.
+- The new version number is `max(existing version_number in the chain) + 1`.
+- New versions start as `pending` for manager review.
+
+Response behavior:
+
+- `UploadPreview` includes `version_number`, `parent_submission_id`, and `version_history`.
+- `UploadSummary` includes `version_number` and `parent_submission_id`.
+
+Frontend:
+
+- `SubmissionsPage.jsx` shows `Re-upload Required` and a `Re-upload` button for `reupload_requested` submissions.
+- The button opens a file picker and posts multipart form data to `/api/uploads/{submission_id}/reupload`.
+- `ManagerDashboard.jsx` shows version tabs (`v1`, `v2`, `v3`) when a submission has version history.
+- Clicking a version tab loads that specific upload preview.
 
 ## Admin Assignment Workflow
 
@@ -250,8 +350,10 @@ Assignment behavior:
 Core tables:
 
 - `users`: application users with email, hashed password, role, optional manager assignment, and creation timestamp.
+- `refresh_tokens`: hashed refresh tokens, expiration, revoked flag, owning user.
 - `submissions`: uploaded file metadata, file path, version metadata, parent submission reference, review status, and upload timestamp.
-- `reviews`: manager decision, required comments for non-approval actions, and review timestamp.
+- `submission_comments`: discussion messages linked to a submission and user.
+- `reviews`: manager decision and review timestamp. `comment` is nullable because feedback is stored in `submission_comments`.
 - `transaction_rows`: normalized financial transaction rows linked to a submission.
 
 Main relationships:
@@ -259,31 +361,33 @@ Main relationships:
 - `users.id` -> `submissions.user_id`
 - `users.id` -> `reviews.manager_id`
 - `users.id` -> `users.manager_id`
+- `users.id` -> `submission_comments.user_id`
 - `submissions.id` -> `reviews.submission_id`
 - `submissions.id` -> `transaction_rows.submission_id`
+- `submissions.id` -> `submission_comments.submission_id`
 - `submissions.id` -> `submissions.parent_submission_id`
+- `users.id` -> `refresh_tokens.user_id`
 
-Important indexes:
+Important indexes and constraints:
 
-- `idx_submissions_user_uploaded`
-- `idx_submissions_status_uploaded`
-- `idx_submissions_parent`
 - `idx_users_manager_id`
-- `idx_reviews_manager_reviewed`
-- `idx_transaction_rows_submission`
-- `idx_transaction_rows_transaction_id`
-- `idx_transaction_rows_date`
-- `idx_transaction_rows_amount`
+- `idx_submission_comments_submission_created`
+- `uq_reviews_submission_id`
+- transaction row indexes for submission, transaction id, date, and amount may exist depending on migration history.
 
-Database definitions are maintained in SQLAlchemy models, Alembic migrations under `backend/alembic/versions/`, and `database/schema.sql` for Docker initialization.
+Schema definitions are maintained in SQLAlchemy models and Alembic migrations under `backend/alembic/versions/`. Keep `database/schema.sql` aligned if it is still used for fresh database initialization outside Alembic.
 
 ## API Surface
 
 Authentication:
 
-- `POST /api/auth/register`: create an employee or manager and return a JWT session.
-- `POST /api/auth/login`: authenticate and return a JWT session.
+- `POST /api/auth/register`: create an employee or manager and return a session.
+- `POST /api/auth/login`: authenticate and return a session.
+- `POST /api/auth/refresh`: rotate/refresh the access token using the refresh-token cookie.
+- `POST /api/auth/logout`: revoke the refresh token and clear the cookie.
 - `GET /api/auth/me`: return the current authenticated user.
+- `PATCH /api/auth/me`: update the current user's account name.
+- `POST /api/auth/change-password`: change current user's password.
 
 Agent:
 
@@ -292,18 +396,25 @@ Agent:
 
 Uploads:
 
-- `POST /api/uploads`: upload and parse a spreadsheet. Requires `employee`.
+- `POST /api/uploads`: upload and parse a new spreadsheet. Requires `employee`.
+- `POST /api/uploads/{submission_id}/reupload`: upload a corrected version. Requires owning `employee` and `reupload_requested`.
 - `GET /api/uploads`: list recent uploads with optional `status` filter. Requires `employee`, `manager`, or `admin`.
-- `GET /api/uploads/{upload_id}`: fetch metadata and preview rows. Requires `employee`, `manager`, or `admin`, scoped by role.
+- `GET /api/uploads/{upload_id}`: fetch metadata, preview rows, and version history. Requires `employee`, `manager`, or `admin`, scoped by role.
+
+Submission comments:
+
+- `GET /api/submissions/{submission_id}/comments`: fetch the comment thread.
+- `POST /api/submissions/{submission_id}/comments`: add a comment.
 
 Approvals:
 
+- `GET /api/approvals/verify-token`: validate a manager email review token.
 - `POST /api/approvals/{upload_id}/approve`: approve a pending submission. Requires `manager`.
-- `POST /api/approvals/{upload_id}/reject`: decline a pending submission with comment. Requires `manager`.
-- `POST /api/approvals/{upload_id}/request-reupload`: request a corrected upload with comment. Requires `manager`.
+- `POST /api/approvals/{upload_id}/reject`: decline a pending submission. Requires `manager` and prior thread feedback.
+- `POST /api/approvals/{upload_id}/request-reupload`: request a corrected upload. Requires `manager` and prior thread feedback.
 - `POST /api/approvals/approve`: approve a pending submission by body `upload_id`. Requires `manager`.
-- `POST /api/approvals/reject`: decline a pending submission by body `upload_id`. Requires `manager`.
-- `POST /api/approvals/request-reupload`: request a corrected upload by body `upload_id`. Requires `manager`.
+- `POST /api/approvals/reject`: decline a pending submission by body `upload_id`. Requires `manager` and prior thread feedback.
+- `POST /api/approvals/request-reupload`: request a corrected upload by body `upload_id`. Requires `manager` and prior thread feedback.
 
 Admin:
 
@@ -331,8 +442,10 @@ The backend exposes one dynamic WebSocket endpoint:
 Current channels:
 
 - `uploads`: upload progress and status changes.
-- `manager`: new upload and review notifications.
+- `manager`: new upload, review, and comment notifications for manager surfaces.
 - `dashboard`: KPI and dashboard refresh notifications.
+- `comments`: real-time submission comment thread updates.
+- `submissions`: comment notifications for submission-history surfaces.
 
 Current event names include:
 
@@ -345,16 +458,21 @@ Current event names include:
 - `upload_reviewed`
 - `dashboard_refresh`
 - `kpi.update`
+- `new_comment`
 
 Message shape:
 
 ```json
 {
-  "event": "dashboard_refresh",
+  "event": "new_comment",
   "payload": {
-    "upload_id": "uuid",
-    "status": "approved",
-    "filename": "transactions.xlsx"
+    "id": "uuid",
+    "submission_id": "uuid",
+    "user_id": "uuid",
+    "user_name": "Manager Name",
+    "user_role": "manager",
+    "message": "Please fix row 23.",
+    "created_at": "2026-05-21T10:30:00Z"
   }
 }
 ```
@@ -401,7 +519,7 @@ Development options:
 
 Docker Compose services:
 
-- `postgres`: PostgreSQL 16 Alpine, initialized from `database/schema.sql`.
+- `postgres`: PostgreSQL 16 Alpine.
 - `backend`: FastAPI app served by Uvicorn on port `8000`.
 - `frontend`: Vite build served through Nginx on port `5173`.
 
@@ -422,21 +540,24 @@ Production recommendations:
 - WebSocket broadcasting is process-local.
 - Upload parsing runs inline in the API request.
 - Uploaded files are stored on local disk or a Docker volume.
-- Reupload versioning fields exist in the schema, but the upload endpoint does not yet create linked replacement submissions.
-- Manager comments are stored as the review record, not as a separate discussion thread.
 - The app validates one fixed financial transaction schema rather than arbitrary Excel structures.
 - Email notifications are best-effort and disabled unless SMTP settings are configured.
 - Automated backend and frontend tests are not yet present in the repository.
+- Version history currently tracks submission metadata and rows per version; there is no side-by-side diff view yet.
+- Review decisions are one per submission version.
 
 ## Roadmap
 
 Phase 1: Current project level
 
 - JWT auth and role-based access control.
+- Refresh-token support.
 - Employee upload flow for `.xlsx` and `.csv`.
 - Financial transaction schema validation.
 - Typed transaction row persistence.
-- Manager approve, decline, and request-reupload workflow.
+- Manager approve, decline, and request-re-upload workflow.
+- Thread-based review feedback.
+- Employee re-upload/versioning flow.
 - Admin manager assignment workflow.
 - Optional SMTP notifications.
 - Agent login/upload endpoint.
@@ -447,8 +568,8 @@ Phase 2: Stabilization
 
 - Add automated backend and frontend tests.
 - Improve validation feedback in the upload UI.
-- Implement linked reupload/version history.
-- Add audit views for review decisions.
+- Add audit views for review decisions and version history.
+- Add side-by-side version diffing.
 - Add transactional cleanup if file parsing fails after the raw file has been written.
 
 Phase 3: Scale and reliability

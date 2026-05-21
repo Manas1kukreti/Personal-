@@ -15,7 +15,10 @@ export default function AuthPage() {
   const { isAuthenticated, login, register } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const requestedDestination = location.state?.from?.pathname;
+  const fromLocation = location.state?.from;
+  const requestedDestination = fromLocation
+    ? `${fromLocation.pathname || ""}${fromLocation.search || ""}${fromLocation.hash || ""}`
+    : "";
   const destination = requestedDestination || "/dashboard";
 
   if (isAuthenticated) return <Navigate to={destination} replace />;

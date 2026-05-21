@@ -1,6 +1,6 @@
 # LedgerFlow Analytics
 
-Modern enterprise-grade Excel analytics and manager approval platform.
+Modern enterprise-grade financial transaction upload, analytics, approval, discussion, and re-upload platform.
 
 ## Stack
 
@@ -45,11 +45,13 @@ Open `http://localhost:5173`.
 
 ## Main Capabilities
 
-- Drag-and-drop `.xlsx` and `.csv` uploads
-- Dynamic data preview for arbitrary Excel structures
+- Drag-and-drop `.xlsx` and `.csv` transaction uploads
+- Fixed financial schema validation and typed transaction persistence
 - Upload progress and status updates over WebSockets
-- Manager approval queue with approve/reject comments
-- Approved rows persisted into transaction tables
+- Manager approval queue with thread-based review feedback
+- Employee re-upload flow with version history
+- Real-time submission comment threads
+- Approved rows tracked through submission review status
 - KPI dashboard with upload counts, recent activity, revenue trends, and latest transactions
 
 ## Architecture Docs
