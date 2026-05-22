@@ -1,7 +1,6 @@
 print("GRAPH FILE STARTED")
 
 import json
-
 from typing import TypedDict
 
 print("TypedDict imported")
@@ -62,7 +61,10 @@ def fetch_email_node(state):
     email_text = get_email_text()
 
     return {
-        "email_text": email_text
+
+        "email_text": email_text,
+
+        "retry_count": 0
     }
 
 
@@ -79,6 +81,7 @@ def extract_data_node(state):
     )
 
     return {
+
         "extracted_data": extracted
     }
 
@@ -92,19 +95,37 @@ def validate_node(state):
     print("\nVALIDATING DATA...\n")
 
     result = validate_data(
+
         state["email_text"],
+
         state["extracted_data"]
     )
 
     print("\nVALIDATION RESULT:\n")
     print(result)
 
+    # =====================================================
+    # CURRENT RETRY COUNT
+    # =====================================================
+
+    retry_count = state.get(
+        "retry_count",
+        0
+    )
+
+    # =====================================================
+    # INCREMENT ONLY IF INVALID
+    # =====================================================
+
+    if result["status"] == "invalid":
+
+        retry_count += 1
+
     return {
+
         "validation_result": result,
-        "retry_count": state.get(
-            "retry_count",
-            0
-        )
+
+        "retry_count": retry_count
     }
 
 
@@ -134,15 +155,6 @@ def re_extract_node(state):
         "transaction_index"
     ]
 
-    corrected_value = re_extract_field(
-
-        state["email_text"],
-
-        failed_field,
-
-        current_value
-    )
-
     # =====================================================
     # LOAD EXISTING JSON
     # =====================================================
@@ -152,7 +164,46 @@ def re_extract_node(state):
     )
 
     # =====================================================
-    # UPDATE ONLY FAILED FIELD
+    # FAILED TRANSACTION ONLY
+    # =====================================================
+
+    failed_transaction = parsed_data[
+        transaction_index
+    ]
+
+    # =====================================================
+    # RE-EXTRACT FIELD
+    # =====================================================
+
+    corrected_value = re_extract_field(
+
+        failed_transaction,
+
+        failed_field,
+
+        current_value
+    )
+
+    # =====================================================
+    # RE-EXTRACTION FAILED
+    # =====================================================
+
+    if corrected_value is None:
+
+        print(
+            "\nRE-EXTRACTION COULD "
+            "NOT RECOVER VALUE\n"
+        )
+
+        return {
+
+            "extracted_data": state[
+                "extracted_data"
+            ]
+        }
+
+    # =====================================================
+    # UPDATE FAILED FIELD
     # =====================================================
 
     parsed_data[
@@ -173,6 +224,7 @@ def re_extract_node(state):
     )
 
     return {
+
         "extracted_data": updated_json
     }
 
@@ -193,6 +245,7 @@ def push_to_ui_node(state):
     print(result)
 
     return {
+
         "ui_result": result
     }
 
@@ -228,9 +281,11 @@ def validation_router(state):
     # =====================================================
 
     if (
+
         state["validation_result"][
             "status"
         ] == "valid"
+
     ):
 
         print(
@@ -243,45 +298,33 @@ def validation_router(state):
     # INVALID DATA
     # =====================================================
 
-    else:
+    current_retry = state.get(
+        "retry_count",
+        0
+    )
 
-        current_retry = (
-            state.get(
-                "retry_count",
-                0
-            ) + 1
-        )
+    print(
+        f"\nVALIDATION FAILED "
+        f"→ RETRY {current_retry}/5\n"
+    )
+
+    # =====================================================
+    # MAX RETRIES REACHED
+    # =====================================================
+
+    if current_retry >= 5:
 
         print(
-            f"\nVALIDATION FAILED "
-            f"→ RETRY {current_retry}/5\n"
+            "\nMAX RETRIES REACHED\n"
         )
 
-        # =================================================
-        # UPDATE RETRY COUNT
-        # =================================================
+        return "notify"
 
-        state["retry_count"] = (
-            current_retry
-        )
+    # =====================================================
+    # RE-EXTRACT
+    # =====================================================
 
-        # =================================================
-        # MAX RETRIES REACHED
-        # =================================================
-
-        if current_retry >= 5:
-
-            print(
-                "\nMAX RETRIES REACHED\n"
-            )
-
-            return "notify"
-
-        # =================================================
-        # RE-EXTRACT FAILED FIELD
-        # =================================================
-
-        return "re_extract"
+    return "re_extract"
 
 
 # =========================================================
@@ -362,8 +405,11 @@ workflow.add_edge(
 # =========================================================
 
 workflow.add_conditional_edges(
+
     "validate",
+
     validation_router,
+
     {
 
         "valid": "push_to_ui",
@@ -407,40 +453,25 @@ try:
 
         app.get_graph()
 
-        .draw_mermaid_png(
-
-            max_retries=5,
-
-            retry_delay=2.0
-
-        )
-
+        .draw_mermaid_png()
     )
 
     with open(
-
         "graph.png",
-
         "wb"
-
     ) as f:
 
         f.write(graph_image)
 
     print(
-
         "\nGRAPH IMAGE SAVED "
-
         "AS graph.png\n"
-
     )
 
 except Exception as e:
 
     print(
-
         "\nERROR GENERATING GRAPH:\n"
-
     )
 
     print(e)

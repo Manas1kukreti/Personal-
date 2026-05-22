@@ -18,7 +18,7 @@ client = Groq(
 # =========================================================
 
 def re_extract_field(
-    email_text,
+    transaction_data,
     failed_field,
     current_value
 ):
@@ -27,30 +27,40 @@ def re_extract_field(
         f"\nRE-EXTRACTING FIELD: {failed_field}\n"
     )
 
-    prompt = f"""
-You are a financial correction engine.
+    # =====================================================
+    # SAFETY CHECK
+    # =====================================================
 
-A previous extraction produced an incorrect value.
+    if current_value in ["", None, "NaN"]:
+
+        print(
+            "\nORIGINAL VALUE IS EMPTY "
+            "IN SOURCE DATA\n"
+        )
+
+    # =====================================================
+    # ONLY SEND FAILED TRANSACTION
+    # =====================================================
+
+    prompt = f"""
+You are a financial data correction engine.
 
 Your task:
-Extract ONLY the correct value for this field
-from the email.
+Extract ONLY the correct value for the missing field.
 
 STRICT RULES:
-1. Return ONLY the corrected value.
-2. Do NOT explain anything.
-3. Do NOT return JSON.
-4. Do NOT generate fake values.
-5. If value not found, return EMPTY.
+1. Return ONLY the value.
+2. Do NOT explain.
+3. Do NOT generate fake values.
+4. If value is missing in source, return EXACTLY:
+NOT_FOUND
+5. Do NOT guess from other transactions.
 
-FIELD:
+FAILED FIELD:
 {failed_field}
 
-CURRENT INCORRECT VALUE:
-{current_value}
-
-EMAIL:
-{email_text}
+TRANSACTION DATA:
+{json.dumps(transaction_data, indent=2)}
 """
 
     try:
@@ -76,6 +86,28 @@ EMAIL:
             .content
             .strip()
         )
+
+        # =================================================
+        # SAFETY CHECK
+        # =================================================
+
+        if corrected_value == "NOT_FOUND":
+
+            print(
+                "\nVALUE NOT FOUND "
+                "IN SOURCE DATA\n"
+            )
+
+            return None
+
+        if corrected_value == "":
+
+            print(
+                "\nEMPTY RESPONSE "
+                "FROM LLM\n"
+            )
+
+            return None
 
         print(
             f"\nCORRECTED VALUE: "
