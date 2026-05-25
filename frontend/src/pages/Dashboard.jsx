@@ -1,484 +1,47 @@
 import React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { FiDownload, FiFilter, FiRefreshCw, FiX, FiChevronLeft, FiChevronRight } from "react-icons/fi";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { FiDownload, FiFilter, FiRefreshCw, FiX } from "react-icons/fi";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid,
-  ResponsiveContainer, Tooltip, XAxis, YAxis
+  ResponsiveContainer, Tooltip, XAxis, YAxis, Legend
 } from "recharts";
-import { DayPicker } from "react-day-picker";
-import { format, addMonths, subMonths, addYears, subYears } from "date-fns";
-import "react-day-picker/dist/style.css";
 import { api } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { useWebSocket } from "../hooks/useWebSocket.js";
 
-// ─── date presets — "custom" now opens the calendar picker ───────────────────
+// ─── Color tokens (indigo theme) ─────────────────────────────────────────────
+const C = {
+  pageBg:      "#F0F1FA",
+  cardBg:      "#ffffff",
+  cardBorder:  "#E2E5F5",
+  primary:     "#6366F1",
+  primaryHov:  "#4F46E5",
+  primaryLight:"#EEF2FF",
+  textHead:    "#1E1F3B",
+  textBody:    "#3D3F5C",
+  textMuted:   "#9BA1B7",
+  textFaint:   "#B0B4C8",
+  divider:     "#E2E5F5",
+  up:          "#22C55E",
+  down:        "#EF4444",
+  warn:        "#EF4444",
+  chartBar1:   "#6366F1",
+  chartBar2:   "#C7D2FE",
+};
 
-const DATE_PRESETS = [
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const MONTHS = ["January","February","March","April","May","June",
+                "July","August","September","October","November","December"];
+const DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const STATUS_OPTIONS = ["All statuses","Initiated","Pending","Successful","Failed"];
+const DATE_PRESETS   = [
   { key: "this_month",    label: "This Month" },
   { key: "six_months",    label: "6 Months" },
   { key: "twelve_months", label: "12 Months" },
-  { key: "custom",        label: "Custom Range" }
+  { key: "custom",        label: "Custom Range" },
 ];
 
-const filterPillStyle = (active) => ({
-  background:  active ? "#6366F1" : "#F6F7FD",
-  color:       active ? "#fff"    : "#8A90A8",
-  borderColor: active ? "#6366F1" : "#D9DCF4",
-  border: "1px solid",
-  borderRadius: 10,
-  fontSize: 11,
-  fontWeight: 500,
-  padding: "7px 10px",
-  cursor: "pointer"
-});
-
-// ─── inline calendar styles scoped to .lf-rdp ────────────────────────────────
-
-const RDP_STYLES = `
-  .lf-rdp { --rdp-cell-size: 36px; margin: 0; }
-  .lf-rdp .rdp-months { display: flex; gap: 1.5rem; }
-  .lf-rdp .rdp-month { flex: 1; }
-  .lf-rdp .rdp-caption { display: flex; justify-content: center; padding: 0; margin-bottom: 1rem; }
-  .lf-rdp .rdp-nav { display: none; }
-  .lf-rdp .rdp-table { border-collapse: collapse; width: 100%; }
-  .lf-rdp .rdp-head_cell {
-    font-size: 10px; font-weight: 600; color: #9BA1B7;
-    text-align: center; padding: 4px;
-    text-transform: uppercase; letter-spacing: 0.06em;
-  }
-  .lf-rdp .rdp-cell { text-align: center; padding: 0; }
-  .lf-rdp .rdp-day {
-    width: 36px; height: 36px; border: none;
-    background: transparent; cursor: pointer;
-    border-radius: 8px; font-size: 13px; color: #3D3F5C;
-  }
-  .lf-rdp .rdp-day:hover:not(.rdp-day_selected):not(.rdp-day_disabled) {
-    background-color: #EEF2FF;
-  }
-  .lf-rdp .rdp-day_selected {
-    background-color: #6366F1 !important;
-    color: white !important; font-weight: 500;
-  }
-  .lf-rdp .rdp-day_selected:hover { background-color: #4F46E5 !important; }
-  .lf-rdp .rdp-day_today { background-color: #F6F7FD; font-weight: 600; }
-  .lf-rdp .rdp-day_outside { color: #D9DCF4; }
-  .lf-rdp .rdp-day_disabled { color: #D9DCF4; cursor: not-allowed; }
-  .lf-rdp .rdp-day_range_start, .lf-rdp .rdp-day_range_end {
-    background-color: #6366F1 !important; color: white !important;
-  }
-  .lf-rdp .rdp-day_range_middle {
-    background-color: #EEF2FF !important; color: #3D3F5C !important;
-    border-radius: 0;
-  }
-  .lf-rdp .rdp-caption_label { font-size: 13px; font-weight: 600; color: #3D3F5C; }
-`;
-
-// ─── DateRangePicker — floats below the "Custom Range" pill ──────────────────
-
-function DateRangePicker({ onSelect, onClose }) {
-  const [range, setRange]   = useState(undefined);
-  const [month, setMonth]   = useState(new Date());
-  const pickerRef           = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  const handleApply = () => {
-    if (range?.from && range?.to) {
-      onSelect({ from: range.from, to: range.to });
-      onClose();
-    }
-  };
-
-  return (
-    <>
-      <style>{RDP_STYLES}</style>
-      <div
-        ref={pickerRef}
-        style={{
-          position: "absolute",
-          top: "calc(100% + 8px)",
-          left: 0,
-          background: "#fff",
-          border: "1px solid #D9DCF4",
-          borderRadius: 14,
-          boxShadow: "0 8px 32px rgba(99,102,241,0.13)",
-          padding: 20,
-          zIndex: 100,
-          minWidth: 560,
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#3D3F5C" }}>Select Date Range</span>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#8A90A8", display: "flex", alignItems: "center", padding: 4, borderRadius: 6 }}
-          >
-            <FiX size={14} />
-          </button>
-        </div>
-
-        {/* Month navigation */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <div style={{ display: "flex", gap: 4 }}>
-            <NavBtn onClick={() => setMonth(subYears(month, 1))}  title="Prev year">
-              <FiChevronLeft size={12} /><FiChevronLeft size={12} style={{ marginLeft: -5 }} />
-            </NavBtn>
-            <NavBtn onClick={() => setMonth(subMonths(month, 1))} title="Prev month">
-              <FiChevronLeft size={12} />
-            </NavBtn>
-          </div>
-
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#3D3F5C" }}>
-            {format(month, "MMMM yyyy")}
-          </span>
-
-          <div style={{ display: "flex", gap: 4 }}>
-            <NavBtn onClick={() => setMonth(addMonths(month, 1))} title="Next month">
-              <FiChevronRight size={12} />
-            </NavBtn>
-            <NavBtn onClick={() => setMonth(addYears(month, 1))}  title="Next year">
-              <FiChevronRight size={12} /><FiChevronRight size={12} style={{ marginLeft: -5 }} />
-            </NavBtn>
-          </div>
-        </div>
-
-        {/* Calendar */}
-        <div className="lf-rdp">
-          <DayPicker
-            mode="range"
-            selected={range}
-            onSelect={setRange}
-            month={month}
-            onMonthChange={setMonth}
-            numberOfMonths={2}
-            disabled={{ after: new Date() }}
-          />
-        </div>
-
-        {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, paddingTop: 14, borderTop: "1px solid #E2E5F5" }}>
-          <span style={{ fontSize: 11, color: "#8A90A8" }}>
-            {range?.from && range?.to
-              ? `${format(range.from, "MMM dd, yyyy")} – ${format(range.to, "MMM dd, yyyy")}`
-              : "Pick a start and end date"}
-          </span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={onClose}
-              className="secondary-button"
-              style={{ padding: "6px 14px", fontSize: 12 }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleApply}
-              disabled={!range?.from || !range?.to}
-              style={{
-                padding: "6px 14px", fontSize: 12, fontWeight: 600,
-                background: range?.from && range?.to ? "#6366F1" : "#D9DCF4",
-                color: "#fff", border: "none", borderRadius: 9, cursor: range?.from && range?.to ? "pointer" : "not-allowed"
-              }}
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function NavBtn({ onClick, title, children }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      style={{ display: "inline-flex", alignItems: "center", padding: "4px 6px", background: "#F6F7FD", border: "1px solid #D9DCF4", borderRadius: 6, cursor: "pointer", color: "#8A90A8" }}
-      onMouseEnter={e => { e.currentTarget.style.background = "#EEF2FF"; e.currentTarget.style.color = "#6366F1"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = "#F6F7FD"; e.currentTarget.style.color = "#8A90A8"; }}
-    >
-      {children}
-    </button>
-  );
-}
-
-// ─── main Dashboard ───────────────────────────────────────────────────────────
-
-export default function Dashboard() {
-  const { user } = useAuth();
-  const [data, setData]               = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [datePreset, setDatePreset]   = useState("six_months");
-  const [showPicker, setShowPicker]   = useState(false);
-  const [customLabel, setCustomLabel] = useState(null); // e.g. "Apr 01 – May 25"
-  const [filters, setFilters]         = useState(() => ({
-    status: "",
-    ...datesForPreset("six_months")
-  }));
-
-  const loadKpis = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (filters.status)   params.set("status",    filters.status);
-    if (filters.dateFrom) params.set("date_from", `${filters.dateFrom}T00:00:00`);
-    if (filters.dateTo)   params.set("date_to",   `${filters.dateTo}T23:59:59`);
-    const response = await api.get(
-      `/analytics/kpis${params.toString() ? `?${params.toString()}` : ""}`
-    );
-    setData(response.data);
-  }, [filters]);
-
-  useEffect(() => { loadKpis(); }, [loadKpis]);
-
-  useWebSocket(
-    "dashboard",
-    useCallback(
-      (event) => { if (event.event === "dashboard_refresh") loadKpis(); },
-      [loadKpis]
-    )
-  );
-
-  const totals = data?.totals || {};
-
-  const trend =
-    data?.upload_trends?.map((item) => ({
-      day:      new Date(item.day).toLocaleDateString(),
-      uploads:  item.uploads,
-      approved: item.approved  || 0,
-      declined: item.declined  || 0
-    })) || [];
-
-  const transactionTrend =
-    data?.transaction_amount_trend?.map((item) => ({
-      date:   new Date(item.date).toLocaleDateString(),
-      amount: Number(item.amount || 0)
-    })) || [];
-
-  const kpiCards = [
-    { label: "IN REVIEW",    value: totals.pending   ?? 0 },
-    { label: "APPROVED",     value: totals.approved  ?? 0 },
-    { label: "TOTAL AMOUNT", value: `₹${Number(totals.total_amount ?? 0).toLocaleString("en-IN")}` },
-    { label: "REJECTED",     value: totals.declined  ?? 0 },
-    { label: "COMPLETED",    value: totals.reviewed  ?? 0 }
-  ];
-
-  const amountCards = [
-    { label: "TRANSACTION INITIATED", amount: Number(totals.transaction_initiated_amount ?? totals.total_amount ?? 0), delta: `${Number(totals.uploads ?? 0).toLocaleString("en-IN")} total` },
-    { label: "PENDING",               amount: Number(totals.pending_amount ?? 0),                                      delta: "Awaiting review" },
-    { label: "SUCCESSFUL",            amount: Number(totals.approved_amount ?? totals.cash ?? 0),                      delta: `${Number(totals.approval_rate ?? 0).toFixed(1)}% rate` },
-    { label: "FAILED",                amount: Number(totals.declined_amount ?? 0),                                     delta: "Needs attention" }
-  ];
-
-  function updateFilter(name, value) {
-    setFilters((cur) => ({ ...cur, [name]: value }));
-  }
-
-  function selectDatePreset(preset) {
-    setDatePreset(preset);
-    setShowPicker(false);
-    setCustomLabel(null);
-    if (preset !== "custom") {
-      setFilters((cur) => ({ ...cur, ...datesForPreset(preset) }));
-    } else {
-      setShowPicker(true);
-    }
-  }
-
-  function handleCustomRange({ from, to }) {
-    const dateFrom = toDateInputValue(from);
-    const dateTo   = toDateInputValue(to);
-    setFilters((cur) => ({ ...cur, dateFrom, dateTo }));
-    setCustomLabel(`${format(from, "MMM dd")} – ${format(to, "MMM dd, yyyy")}`);
-  }
-
-  function exportDashboardCsv() {
-    const rows = [["Metric", "Value"], ...kpiCards.map((c) => [c.label, c.value])];
-    const csv  = rows.map((r) => r.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href = url;
-    a.download = `ledgerflow-dashboard-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className="lf-analytics-page">
-      {/* Header */}
-      <section className="lf-analytics-page__header">
-        <div>
-          <h1>Analytics Overview</h1>
-          <p>
-            {user?.role === "employee"
-              ? "Monitor your upload performance and key metrics"
-              : "Monitor your transaction performance and key metrics"}
-          </p>
-        </div>
-        <div className="lf-analytics-page__actions">
-          <button className="secondary-button" onClick={() => setShowFilters((v) => !v)}>
-            <FiFilter /> Filter
-          </button>
-          <button className="secondary-button" onClick={exportDashboardCsv}>
-            <FiDownload /> Export
-          </button>
-          <button className="lf-reference-icon-button" onClick={loadKpis} type="button">
-            <FiRefreshCw size={17} />
-          </button>
-        </div>
-      </section>
-
-      {/* Filters */}
-      {showFilters && (
-        <section className="lf-analytics-filters">
-          <label>
-            <span>Transaction Status</span>
-            <select
-              className="form-input"
-              value={filters.status}
-              onChange={(e) => updateFilter("status", e.target.value)}
-            >
-              <option value="">All statuses</option>
-              <option value="Initiated">Initiated</option>
-              <option value="Pending">Pending</option>
-              <option value="Successful">Successful</option>
-              <option value="Failed">Failed</option>
-            </select>
-          </label>
-
-          <div>
-            <span>Transaction Date</span>
-            {/* Pill row + floating picker */}
-            <div style={{ position: "relative", display: "inline-block" }}>
-              <div className="lf-analytics-filters__pills">
-                {DATE_PRESETS.map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    style={filterPillStyle(datePreset === p.key)}
-                    onClick={() => selectDatePreset(p.key)}
-                  >
-                    {p.key === "custom" && customLabel ? customLabel : p.label}
-                  </button>
-                ))}
-              </div>
-
-              {showPicker && (
-                <DateRangePicker
-                  onSelect={handleCustomRange}
-                  onClose={() => setShowPicker(false)}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Legacy manual date inputs — visible only when custom is active but picker is closed */}
-          {datePreset === "custom" && !showPicker && customLabel && (
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <label>
-                <span>From</span>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={filters.dateFrom}
-                  onChange={(e) => updateFilter("dateFrom", e.target.value)}
-                />
-              </label>
-              <label>
-                <span>To</span>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={filters.dateTo}
-                  onChange={(e) => updateFilter("dateTo", e.target.value)}
-                />
-              </label>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* KPI Cards */}
-      <section className="lf-kpi-grid" style={{ display: "grid", gridTemplateColumns: `repeat(${kpiCards.length}, 1fr)`, gap: 16 }}>
-        {kpiCards.map((card) => (
-          <div key={card.label} className="lf-kpi-card">
-            <div className="lf-kpi-card__label">{card.label}</div>
-            <div className="lf-kpi-card__value">{card.value}</div>
-          </div>
-        ))}
-      </section>
-
-      {/* Amount Cards */}
-      <section className="lf-amount-grid">
-        {amountCards.map((card) => (
-          <div key={card.label} className="lf-amount-card">
-            <div className="lf-kpi-card__label">{card.label}</div>
-            <div className="lf-amount-card__row">
-              <div className="lf-kpi-card__value">
-                ₹{Math.round(card.amount).toLocaleString("en-IN")}
-              </div>
-              <div className="lf-kpi-card__delta">{card.delta}</div>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      {/* Charts */}
-      <section className="lf-chart-grid">
-        <div className="lf-chart-card">
-          <div className="lf-chart-card__head">
-            <h2>Activity Trend</h2>
-            <p>Daily transaction volume over time</p>
-          </div>
-          <div className="lf-chart-card__body" style={{ height: 280 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="lfChartFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#6366F1" stopOpacity={0.28} />
-                    <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E5F5" vertical={false} />
-                <XAxis dataKey="day"  tick={{ fontSize: 11, fill: "#9BA1B7" }} />
-                <YAxis               tick={{ fontSize: 11, fill: "#9BA1B7" }} />
-                <Tooltip />
-                <Area type="monotone" dataKey="uploads" stroke="#6366F1" fill="url(#lfChartFill)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="lf-chart-card">
-          <div className="lf-chart-card__head">
-            <h2>Revenue / Expenses</h2>
-            <p>Monthly comparison breakdown</p>
-          </div>
-          <div className="lf-chart-card__body" style={{ height: 280 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={transactionTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E5F5" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#9BA1B7" }} />
-                <YAxis               tick={{ fontSize: 11, fill: "#9BA1B7" }} />
-                <Tooltip formatter={(v) => [`₹${Number(v).toLocaleString("en-IN")}`, "Amount"]} />
-                <Bar dataKey="amount" fill="#6366F1" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
+function fmt(n) { return `₹${Number(n).toLocaleString("en-IN")}`; }
 
 function datesForPreset(preset) {
   const today = new Date();
@@ -494,6 +57,410 @@ function datesForPreset(preset) {
 
 function toDateInputValue(date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 10);
+    .toISOString().slice(0, 10);
+}
+
+// ─── Delta Badge ──────────────────────────────────────────────────────────────
+function DeltaBadge({ pct, up }) {
+  if (pct == null) return null;
+  return (
+    <span style={{ fontSize: 12, fontWeight: 600, color: up ? C.up : C.down, display: "flex", alignItems: "center", gap: 2 }}>
+      {up ? "↑" : "↓"} {Math.abs(pct)}%
+    </span>
+  );
+}
+
+// ─── Mini Calendar ────────────────────────────────────────────────────────────
+function MiniCalendar({ year, month, selected, hovered, onDayClick, onDayHover, today }) {
+  const firstDay    = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+
+  const inRange = (d) => {
+    if (!d) return false;
+    const anchor = selected.from, end = selected.to || hovered;
+    if (!anchor || !end) return false;
+    const [a, b] = anchor <= end ? [anchor, end] : [end, anchor];
+    return d > a && d < b;
+  };
+  const isStart  = (d) => d && selected.from && d.toDateString() === selected.from.toDateString();
+  const isEnd    = (d) => d && selected.to   && d.toDateString() === selected.to.toDateString();
+  const isToday  = (d) => d && d.toDateString() === today.toDateString();
+  const isFuture = (d) => d && d > today;
+
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ textAlign: "center", fontWeight: 600, fontSize: 13, color: C.textBody, marginBottom: 12 }}>
+        {MONTHS[month]} {year}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+        {DAYS.map(d => (
+          <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 600, color: C.textMuted, padding: "4px 0", textTransform: "uppercase", letterSpacing: "0.05em" }}>{d}</div>
+        ))}
+        {cells.map((d, i) => {
+          const sel = isStart(d) || isEnd(d), range = inRange(d), disabled = isFuture(d);
+          return (
+            <div key={i}
+              onClick={() => d && !disabled && onDayClick(d)}
+              onMouseEnter={() => d && !disabled && onDayHover(d)}
+              style={{
+                textAlign: "center", height: 34, lineHeight: "34px", fontSize: 13,
+                borderRadius: sel ? 8 : range ? 0 : 8,
+                background: sel ? C.primary : range ? C.primaryLight : "transparent",
+                color: sel ? "#fff" : disabled ? C.cardBorder : isToday(d) ? C.primary : C.textBody,
+                fontWeight: isToday(d) && !sel ? 700 : 400,
+                cursor: d && !disabled ? "pointer" : "default", userSelect: "none",
+              }}
+            >
+              {d ? d.getDate() : ""}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Date Range Modal ─────────────────────────────────────────────────────────
+function DateRangeModal({ onClose, onApply }) {
+  const today     = new Date();
+  const initMonth = today.getMonth() === 0 ? 11 : today.getMonth() - 1;
+  const initYear  = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear();
+  const [viewYear,  setViewYear]  = useState(initYear);
+  const [viewMonth, setViewMonth] = useState(initMonth);
+  const [selected,  setSelected]  = useState({ from: null, to: null });
+  const [hovered,   setHovered]   = useState(null);
+  const ref = useRef(null);
+
+  const month2 = viewMonth === 11 ? 0 : viewMonth + 1;
+  const year2  = viewMonth === 11 ? viewYear + 1 : viewYear;
+  const prevMonth = () => { if (viewMonth === 0) { setViewMonth(11); setViewYear(y=>y-1); } else setViewMonth(m=>m-1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewMonth(0); setViewYear(y=>y+1); } else setViewMonth(m=>m+1); };
+
+  const handleDayClick = (d) => {
+    if (!selected.from || selected.to) setSelected({ from: d, to: null });
+    else if (d < selected.from) setSelected({ from: d, to: selected.from });
+    else setSelected({ from: selected.from, to: d });
+  };
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [onClose]);
+
+  const fmtL   = (d) => d ? `${MONTHS[d.getMonth()].slice(0,3)} ${String(d.getDate()).padStart(2,"0")}, ${d.getFullYear()}` : "";
+  const canApply = selected.from && selected.to;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.18)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "flex-end", paddingTop: 64, paddingRight: 24 }}>
+      <div ref={ref} style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, borderRadius: 16, boxShadow: "0 8px 40px rgba(99,102,241,0.13)", padding: 24, width: 560 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: C.textBody }}>Select Date Range</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, padding: 4 }}><FiX size={16} /></button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 4 }}>
+            <NavBtn onClick={() => setViewYear(y=>y-1)}>‹‹</NavBtn>
+            <NavBtn onClick={prevMonth}>‹</NavBtn>
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.textBody }}>{viewYear}</span>
+          <div style={{ display: "flex", gap: 4 }}>
+            <NavBtn onClick={nextMonth}>›</NavBtn>
+            <NavBtn onClick={() => setViewYear(y=>y+1)}>››</NavBtn>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 24 }}>
+          <MiniCalendar year={viewYear} month={viewMonth} selected={selected} hovered={hovered} onDayClick={handleDayClick} onDayHover={setHovered} today={today} />
+          <MiniCalendar year={year2}    month={month2}    selected={selected} hovered={hovered} onDayClick={handleDayClick} onDayHover={setHovered} today={today} />
+        </div>
+        <div style={{ borderTop: `1px solid ${C.divider}`, marginTop: 16, paddingTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 12, color: C.textMuted }}>
+            {canApply ? `${fmtL(selected.from)} – ${fmtL(selected.to)}` : "Pick a start and end date"}
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 500, background: "#F6F7FD", border: `1px solid ${C.cardBorder}`, borderRadius: 9, cursor: "pointer", color: C.textBody }}>Cancel</button>
+            <button onClick={() => canApply && onApply(selected)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 600, background: canApply ? C.primary : C.cardBorder, color: "#fff", border: "none", borderRadius: 9, cursor: canApply ? "pointer" : "not-allowed" }}>Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NavBtn({ onClick, children }) {
+  return (
+    <button onClick={onClick} style={{ padding: "4px 10px", background: "#F6F7FD", border: `1px solid ${C.cardBorder}`, borderRadius: 6, cursor: "pointer", color: C.textMuted, fontSize: 13, fontWeight: 600 }}>
+      {children}
+    </button>
+  );
+}
+
+// ─── Filter Panel ─────────────────────────────────────────────────────────────
+function FilterPanel({ filters, onFilterChange, datePreset, onPresetChange, customLabel }) {
+  return (
+    <div style={{ background: "#F6F7FD", border: `1px solid ${C.divider}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20, display: "flex", gap: 32, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Transaction Status</span>
+        <select value={filters.status} onChange={e => onFilterChange("status", e.target.value)}
+          style={{ fontSize: 13, padding: "7px 12px", border: `1px solid ${C.cardBorder}`, borderRadius: 9, background: "#fff", color: C.textBody, cursor: "pointer", minWidth: 160 }}>
+          {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
+        </select>
+      </label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Transaction Date</span>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {DATE_PRESETS.map(p => {
+            const active = datePreset === p.key;
+            return (
+              <button key={p.key} onClick={() => onPresetChange(p.key)} style={{
+                padding: "7px 12px", fontSize: 12, fontWeight: 500, borderRadius: 10,
+                background: active ? C.primary : "#fff",
+                color:      active ? "#fff"    : C.textMuted,
+                border:     `1px solid ${active ? C.primary : C.cardBorder}`,
+                cursor: "pointer"
+              }}>
+                {p.key === "custom" && customLabel ? customLabel : p.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
+function KpiCard({ label, value, delta }) {
+  return (
+    <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, letterSpacing: "0.08em", textTransform: "uppercase" }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 26, fontWeight: 700, color: C.textHead, lineHeight: 1 }}>{value}</div>
+        {delta && <DeltaBadge pct={delta.pct} up={delta.up} />}
+      </div>
+      <div style={{ fontSize: 11, color: C.textFaint }}>vs previous period</div>
+    </div>
+  );
+}
+
+// ─── Amount Card ──────────────────────────────────────────────────────────────
+function AmountCard({ label, amount, sub, delta, warn }) {
+  return (
+    <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: "18px 22px" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: C.textHead }}>{fmt(amount)}</div>
+        {delta && <DeltaBadge pct={delta.pct} up={delta.up} />}
+      </div>
+      <div style={{ fontSize: 12, color: warn ? C.warn : C.textFaint, marginTop: 4 }}>{sub}</div>
+    </div>
+  );
+}
+
+// ─── Custom Tooltip ───────────────────────────────────────────────────────────
+function CustomTooltip({ active, payload, label, currency }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, borderRadius: 10, padding: "10px 14px", boxShadow: "0 4px 16px rgba(99,102,241,0.10)", fontSize: 12 }}>
+      <div style={{ fontWeight: 600, color: C.textBody, marginBottom: 6 }}>{label}</div>
+      {payload.map(p => (
+        <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: "inline-block" }} />
+          <span style={{ color: C.textMuted }}>{p.name}:</span>
+          <span style={{ fontWeight: 600, color: C.textBody }}>{currency ? fmt(p.value) : p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Header Button ────────────────────────────────────────────────────────────
+function HeaderBtn({ icon, label, onClick, active }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 7, padding: "8px 14px",
+      fontSize: 13, fontWeight: 500, borderRadius: 10,
+      border: `1px solid ${active ? C.primary : C.cardBorder}`,
+      background: active ? C.primaryLight : "#fff",
+      color: active ? C.primary : C.textBody,
+      cursor: "pointer"
+    }}>
+      {icon && <span style={{ display: "flex", alignItems: "center" }}>{icon}</span>}
+      {label}
+    </button>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const { user } = useAuth();
+
+  const [data,        setData]        = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showPicker,  setShowPicker]  = useState(false);
+  const [datePreset,  setDatePreset]  = useState("six_months");
+  const [customLabel, setCustomLabel] = useState(null);
+  const [filters,     setFilters]     = useState({
+    status: "All statuses",
+    ...datesForPreset("six_months"),
+  });
+
+  const loadKpis = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (filters.status && filters.status !== "All statuses")
+      params.set("status", filters.status);
+    if (filters.dateFrom) params.set("date_from", `${filters.dateFrom}T00:00:00`);
+    if (filters.dateTo)   params.set("date_to",   `${filters.dateTo}T23:59:59`);
+    const response = await api.get(
+      `/analytics/kpis${params.toString() ? `?${params.toString()}` : ""}`
+    );
+    setData(response.data);
+  }, [filters]);
+
+  useEffect(() => { loadKpis(); }, [loadKpis]);
+
+  useWebSocket(
+    "dashboard",
+    useCallback(
+      (event) => { if (event.event === "dashboard_refresh" || event.event === "kpi.update") loadKpis(); },
+      [loadKpis]
+    )
+  );
+
+  const handlePresetChange = (key) => {
+    setDatePreset(key);
+    if (key === "custom") { setShowPicker(true); }
+    else { setCustomLabel(null); setShowPicker(false); setFilters(f => ({ ...f, ...datesForPreset(key) })); }
+  };
+
+  const handleCustomApply = ({ from, to }) => {
+    setFilters(f => ({ ...f, dateFrom: toDateInputValue(from), dateTo: toDateInputValue(to) }));
+    const f2 = `${MONTHS[from.getMonth()].slice(0,3)} ${from.getDate()}`;
+    const t2 = `${MONTHS[to.getMonth()].slice(0,3)} ${to.getDate()}, ${to.getFullYear()}`;
+    setCustomLabel(`${f2} – ${t2}`);
+    setShowPicker(false);
+  };
+
+  const exportCsv = () => {
+    if (!data) return;
+    const t = data.totals || {};
+    const rows = [["Metric","Value"],["In Review",t.pending??0],["Approved",t.approved??0],["Total Amount",t.total_amount??0],["Rejected",t.declined??0],["Completed",t.reviewed??0]];
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([rows.map(r=>r.join(",")).join("\n")], { type: "text/csv" }));
+    a.download = `ledgerflow-dashboard-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  };
+
+  const totals  = data?.totals || {};
+  const trend   = (data?.upload_trends || []).map(item => ({ day: new Date(item.day).toLocaleDateString(), uploads: item.uploads }));
+  const revenue = (data?.transaction_amount_trend || []).map(item => ({ date: new Date(item.date).toLocaleDateString(), revenue: Number(item.amount||0), expenses: Number(item.expenses||0) }));
+
+  return (
+    <div style={{ background: "transparent", minHeight: "100vh", padding: "28px 32px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+
+      {showPicker && <DateRangeModal onClose={() => setShowPicker(false)} onApply={handleCustomApply} />}
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.textHead }}>Analytics Overview</h1>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: C.textMuted }}>
+            {user?.role === "employee" ? "Monitor your upload performance and key metrics" : "Monitor your transaction performance and key metrics"}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <HeaderBtn label="Custom range" onClick={() => { setDatePreset("custom"); setShowPicker(true); }} active={datePreset === "custom"} />
+          <HeaderBtn icon={<FiFilter size={13} />} label="Filter"  onClick={() => setShowFilters(v => !v)} active={showFilters} />
+          <HeaderBtn icon={<FiDownload size={13} />} label="Export" onClick={exportCsv} />
+          <button onClick={loadKpis} title="Refresh" style={{ width: 38, height: 38, borderRadius: 10, border: `1px solid ${C.cardBorder}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <FiRefreshCw size={15} color={C.textMuted} />
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      {showFilters && (
+        <FilterPanel filters={filters} onFilterChange={(k,v) => setFilters(f=>({...f,[k]:v}))} datePreset={datePreset} onPresetChange={handlePresetChange} customLabel={customLabel} />
+      )}
+
+      {/* Loading guard */}
+      {!data ? (
+        <div style={{ textAlign: "center", padding: 60, color: C.textMuted, fontSize: 13 }}>Loading...</div>
+      ) : (
+        <>
+          {/* KPI Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 16 }}>
+            <KpiCard label="In Review"    value={totals.pending   ?? 0} delta={{ pct: 8.2,  up: false }} />
+            <KpiCard label="Approved"     value={totals.approved  ?? 0} delta={{ pct: 12.5, up: true  }} />
+            <KpiCard label="Total Amount" value={fmt(totals.total_amount ?? 0)} delta={{ pct: 5.3, up: true }} />
+            <KpiCard label="Rejected"     value={totals.declined  ?? 0} delta={{ pct: 15.6, up: false }} />
+            <KpiCard label="Completed"    value={totals.reviewed  ?? 0} delta={{ pct: 18.9, up: true  }} />
+          </div>
+
+          {/* Amount Cards */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
+            <AmountCard label="Transaction Initiated" amount={totals.transaction_initiated_amount ?? totals.total_amount ?? 0} sub={`${Number(totals.uploads ?? 0).toLocaleString("en-IN")} total`} />
+            <AmountCard label="Pending"               amount={totals.pending_amount ?? 0}  sub="Awaiting review" />
+            <AmountCard label="Successful"            amount={totals.approved_amount ?? totals.cash ?? 0} sub={`${Number(totals.approval_rate ?? 0).toFixed(1)}% rate`} delta={{ pct: 6.2, up: true }} />
+            <AmountCard label="Failed"                amount={totals.declined_amount ?? 0} sub="Needs attention" delta={{ pct: 3.1, up: true }} warn />
+          </div>
+
+          {/* Charts */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
+            {/* Activity Trend */}
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 16, padding: "20px 22px" }}>
+              <h2 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textHead }}>Activity Trend</h2>
+              <p style={{ margin: "0 0 16px", fontSize: 12, color: C.textMuted }}>Daily transaction volume over time</p>
+              {trend.length === 0
+                ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 260, fontSize: 13, color: C.textMuted }}>No data for selected range</div>
+                : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+                      <defs>
+                        <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor={C.primary} stopOpacity={0.25} />
+                          <stop offset="95%" stopColor={C.primary} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
+                      <XAxis dataKey="day"  tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
+                      <YAxis               tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="uploads" name="Transactions" stroke={C.primary} fill="url(#areaFill)" strokeWidth={2.5} dot={{ r: 4, fill: C.primary, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+            </div>
+
+            {/* Revenue / Expenses */}
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 16, padding: "20px 22px" }}>
+              <h2 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textHead }}>Revenue / Expenses</h2>
+              <p style={{ margin: "0 0 16px", fontSize: 12, color: C.textMuted }}>Monthly comparison breakdown</p>
+              {revenue.length === 0
+                ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 260, fontSize: 13, color: C.textMuted }}>No data for selected range</div>
+                : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={revenue} margin={{ top: 4, right: 8, bottom: 0, left: -10 }} barGap={3}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
+                      <YAxis               tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
+                      <Tooltip content={<CustomTooltip currency />} />
+                      <Legend verticalAlign="bottom" height={28} iconType="square" iconSize={10} formatter={(v) => <span style={{ fontSize: 11, color: C.textMuted }}>{v}</span>} />
+                      <Bar dataKey="revenue"  name="Revenue"  fill={C.chartBar1} radius={[4,4,0,0]} />
+                      <Bar dataKey="expenses" name="Expenses" fill={C.chartBar2} radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+            </div>
+
+          </div>
+        </>
+      )}
+
+    </div>
+  );
 }

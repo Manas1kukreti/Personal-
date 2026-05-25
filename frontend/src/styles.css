@@ -3998,8 +3998,9 @@ body {
 
 .lf-analytics-page__header p {
   margin-top: 8px;
-  color: #9AA0B9;
+  color: #252A66;
   font-size: 14px;
+  font-weight: 600;
 }
 
 .lf-analytics-page__actions {
@@ -4343,12 +4344,11 @@ body {
 }
 
 .lf-submissions-table th {
-  color: #9FA5BC !important;
+  color: #252A66 !important;
   font-size: 12px !important;
-  font-weight: 500 !important;
+  font-weight: 700 !important;
   text-transform: uppercase !important;
 }
-
 .lf-submissions-table td {
   color: #252A66;
   font-size: 14px;
@@ -4504,8 +4504,9 @@ body {
 
 .lf-settings-header p {
   margin-top: 8px;
-  color: #9AA0B9;
+  color: #252A66;
   font-size: 14px;
+  font-weight: 600;
 }
 
 .lf-settings-grid {
@@ -4618,8 +4619,9 @@ body {
 
 .lf-upload-header p {
   margin-top: 8px;
-  color: #9AA0B9;
+  color: #252A66;
   font-size: 14px;
+  font-weight: 600;
 }
 
 .lf-upload-icon-button {
@@ -4652,9 +4654,9 @@ body {
 }
 
 .lf-upload-stat-card span {
-  color: #9FA5BC;
+  color: #252A66;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -5122,4 +5124,248 @@ body {
   .lf-upload-search {
     width: 100%;
   }
+}
+.lf-submissions-title {
+  color: #20245C;
+  font-size: 26px;
+  font-weight: 600;
+  margin: 0;
+  line-height: 1.2;
+}
+ 
+/* Tabs */
+.lf-submissions-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1.5px solid #D9DDF1;
+  margin-bottom: 4px;
+}
+ 
+.lf-submissions-tab {
+  position: relative;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  color: #252A66;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.18s ease;
+  margin-bottom: -1.5px;
+}
+
+.lf-submissions-tab:hover {
+  color: #090d1f;
+}
+
+.lf-submissions-tab.is-active {
+  color: #6366F1;
+  font-weight: 700;
+}
+ 
+.lf-submissions-tab.is-active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: #6366F1;
+}
+ 
+/* Footer: results count + pagination */
+.lf-submissions-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-top: 1px solid #D9DDF1;
+  background: #FFFFFF;
+}
+ 
+.lf-submissions-count {
+  color: #9FA5BC;
+  font-size: 13px;
+}
+ 
+.lf-submissions-count strong {
+  color: #252A66;
+  font-weight: 600;
+}
+ 
+/* Pagination */
+.lf-submissions-pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+ 
+.lf-page-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid #D9DDF1;
+  background: #F7F8FE;
+  color: #252A66;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+ 
+.lf-page-btn:hover:not(:disabled) {
+  background: #FFFFFF;
+  border-color: #6366F1;
+  color: #6366F1;
+}
+ 
+.lf-page-btn.is-active {
+  background: #6366F1;
+  border-color: #6366F1;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+ 
+.lf-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+ 
+.lf-page-ellipsis {
+  color: #9FA5BC;
+  font-size: 13px;
+  padding: 0 4px;
+  user-select: none;
+}
+ 
+@media (max-width: 600px) {
+  .lf-submissions-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+
+
+.lf-sidebar-collapsible {
+  position: relative;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: visible;
+}
+
+/* Logo wrap with hover glow */
+.lf-sidebar-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  padding: 2px;
+  transition: box-shadow 0.22s ease, transform 0.22s ease;
+  flex-shrink: 0;
+}
+
+.lf-sidebar-logo-wrap:hover,
+.lf-sidebar-brand:hover .lf-sidebar-logo-wrap {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18), 0 0 18px 4px rgba(99, 102, 241, 0.22);
+  transform: scale(1.06);
+}
+
+/* Brand row in collapsed state centers the logo */
+.lf-sidebar-collapsible.is-collapsed .lf-reference-sidebar__brand {
+  justify-content: center;
+  padding: 12px 0;
+}
+
+/* Nav links — collapsed: icon only, centered */
+.lf-sidebar-collapsible.is-collapsed .lf-reference-sidebar__nav {
+  align-items: center;
+}
+
+.lf-sidebar-collapsible.is-collapsed .lf-reference-sidebar__link {
+  justify-content: center;
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-radius: 12px;
+}
+
+
+/* Collapse toggle button */
+.lf-sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #DEE2F3;
+  color: #6366F1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+  transition: background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  z-index: 10;
+}
+
+.lf-sidebar-toggle:hover {
+  background: #6366F1;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  transform: translateY(-50%) scale(1.1);
+}
+
+/* Tooltip for collapsed nav items */
+.lf-sidebar-collapsible.is-collapsed .lf-reference-sidebar__link {
+  position: relative;
+}
+
+.lf-sidebar-collapsible.is-collapsed .lf-reference-sidebar__link::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #20245C;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(32, 36, 92, 0.18);
+}
+
+.lf-sidebar-collapsible.is-collapsed .lf-reference-sidebar__link:hover::after {
+  opacity: 1;
+}
+
+.lf-reference-sidebar__brand {
+  padding: 8px 12px !important;
+  min-height: unset !important;
+  margin-bottom: 16px !important;
+}
+
+.lf-sidebar-logo-wrap img {
+  width: 120px !important;
+  height: 32px !important;
+  object-fit: contain;
+  object-position: left center;
 }

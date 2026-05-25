@@ -6,9 +6,9 @@ import {
   FiArchive,
   FiBell,
   FiCheckSquare,
-  FiChevronDown,
+  FiChevronLeft,
+  FiChevronRight,
   FiCommand,
-  FiDatabase,
   FiLogOut,
   FiSearch,
   FiSettings,
@@ -20,6 +20,7 @@ import {
 import { createPortal } from "react-dom";
 import { api } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.jsx";
+import logo from "../asset/logo.png";
 
 const navItems = [
   { to: "/dashboard", label: "Analytics", icon: FiTrendingUp, keywords: ["overview", "kpi", "transactions"] },
@@ -31,8 +32,11 @@ const navItems = [
   { to: "/audit", label: "Audit Log", icon: FiActivity, roles: ["admin"], keywords: ["audit", "events", "history"] },
 ];
 
+
+
 export default function AppShell() {
   const { user, logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
   const [pendingActions, setPendingActions] = useState(0);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -56,7 +60,9 @@ export default function AppShell() {
   const commandItems = useMemo(() => {
     const query = commandQuery.trim().toLowerCase();
     if (!query) return visibleNavItems;
-    return visibleNavItems.filter((item) => [item.label, ...(item.keywords || [])].join(" ").toLowerCase().includes(query));
+    return visibleNavItems.filter((item) =>
+      [item.label, ...(item.keywords || [])].join(" ").toLowerCase().includes(query)
+    );
   }, [commandQuery, visibleNavItems]);
 
   const loadPendingActions = useCallback(async () => {
@@ -65,7 +71,6 @@ export default function AppShell() {
       setNotifications([]);
       return;
     }
-
     const endpoint = ["manager", "admin"].includes(user.role) ? "/uploads?status=pending" : "/uploads";
     const response = await api.get(endpoint);
     const items = response.data.slice(0, 5);
@@ -95,7 +100,6 @@ export default function AppShell() {
         setShowNotifications(false);
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
@@ -117,38 +121,57 @@ export default function AppShell() {
   }
 
   return (
-    <div className="lf-reference-shell">
-      <aside className="lf-reference-sidebar">
-        <div className="lf-reference-sidebar__brand">
-          <div className="lf-reference-sidebar__logo">LF</div>
-          <div>
-            <div className="lf-reference-sidebar__title">LedgerFlow</div>
-            <div className="lf-reference-sidebar__role">{user?.role ? `${user.role.charAt(0).toUpperCase()}${user.role.slice(1)}` : "Workspace"}</div>
-          </div>
-        </div>
+    <div className="lf-reference-shell" style={{ gridTemplateColumns: collapsed ? "72px minmax(0,1fr)" : "264px minmax(0,1fr)" }}>
 
+      {/* ── Sidebar ── */}
+      <aside className={`lf-reference-sidebar lf-sidebar-collapsible${collapsed ? " is-collapsed" : ""}`}>
+
+        {/* Brand / Logo */}
+<div className="lf-reference-sidebar__brand lf-sidebar-brand">
+  <div className="lf-sidebar-logo-wrap">
+    <img src={logo} alt="LedgerFlow" style={{ width: 200, height: 160, objectFit: "contain" }} />
+  </div>
+</div>
+
+        {/* Nav links */}
         <nav className="lf-reference-sidebar__nav">
           {visibleNavItems.slice(0, 5).map((item) => {
             const Icon = item.icon;
+            const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + "/");
             return (
-              <NavLink key={item.to} to={item.to} className={({ isActive }) => `lf-reference-sidebar__link${isActive || location.pathname.startsWith(item.to + "/") ? " is-active" : ""}`}>
-                <Icon size={18} />
-                <span>{item.label}</span>
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={`lf-reference-sidebar__link lf-sidebar-link${isActive ? " is-active" : ""}`}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon size={18} style={{ flexShrink: 0 }} />
+                {!collapsed && <span>{item.label}</span>}
               </NavLink>
             );
           })}
         </nav>
 
-        <div className="lf-reference-sidebar__footer">
-          <div className="lf-reference-sidebar__user-avatar">{initials}</div>
-          <div className="lf-reference-sidebar__user-copy">
-            <strong>{user?.name || "User"}</strong>
-            <span>{user?.email || ""}</span>
-          </div>
-        </div>
+
+        {/* Collapse toggle button */}
+        <button
+          className="lf-sidebar-toggle"
+          onClick={() => setCollapsed((v) => !v)}
+          type="button"
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? <FiChevronRight size={15} /> : <FiChevronLeft size={15} />}
+        </button>
       </aside>
 
-      <div className="lf-reference-main">
+      {/* ── Main ── */}
+      <div
+        className="lf-reference-main"
+        style={{
+          background: "linear-gradient(135deg, #b8bde8 0%, #d4d8f5 40%, #eceffe 100%)",
+          minHeight: "100vh",
+        }}
+      >
         <header className="lf-reference-topbar">
           <button className="lf-reference-search" onClick={() => setCommandOpen(true)} type="button">
             <FiSearch size={18} />
@@ -163,32 +186,46 @@ export default function AppShell() {
             </div>
 
             <div className="lf-reference-notification-wrap">
-              <button className="lf-reference-icon-button" onClick={async () => { await loadPendingActions(); setShowNotifications((v) => !v); }} type="button">
+              <button
+                className="lf-reference-icon-button"
+                onClick={async () => { await loadPendingActions(); setShowNotifications((v) => !v); }}
+                type="button"
+              >
                 <FiBell size={18} />
-                {pendingActions > 0 && <span className="lf-reference-notification-badge">{pendingActions > 9 ? "9+" : pendingActions}</span>}
+                {pendingActions > 0 && (
+                  <span className="lf-reference-notification-badge">
+                    {pendingActions > 9 ? "9+" : pendingActions}
+                  </span>
+                )}
               </button>
               {showNotifications && (
                 <div className="lf-reference-notification-panel">
                   <div className="lf-reference-notification-panel__head">
                     <strong>Notifications</strong>
-                    <button className="lf-reference-icon-button is-small" onClick={() => setShowNotifications(false)} type="button"><FiX size={14} /></button>
+                    <button className="lf-reference-icon-button is-small" onClick={() => setShowNotifications(false)} type="button">
+                      <FiX size={14} />
+                    </button>
                   </div>
                   <div>
-                    {notifications.length ? notifications.map((upload) => (
-                      <button key={upload.id} className="lf-reference-notification-row" onClick={() => openNotification(upload)} type="button">
-                        <div>
-                          <strong>{upload.filename}</strong>
-                          <span>{upload.total_rows || upload.rows || 0} rows</span>
-                        </div>
-                      </button>
-                    )) : <div className="lf-reference-empty">No notifications right now.</div>}
+                    {notifications.length
+                      ? notifications.map((upload) => (
+                          <button key={upload.id} className="lf-reference-notification-row" onClick={() => openNotification(upload)} type="button">
+                            <div>
+                              <strong>{upload.filename}</strong>
+                              <span>{upload.total_rows || upload.rows || 0} rows</span>
+                            </div>
+                          </button>
+                        ))
+                      : <div className="lf-reference-empty">No notifications right now.</div>}
                   </div>
                 </div>
               )}
             </div>
 
             <div className="lf-reference-avatar">{initials}</div>
-            <button className="lf-reference-icon-button" onClick={logout} type="button"><FiLogOut size={18} /></button>
+            <button className="lf-reference-icon-button" onClick={logout} type="button">
+              <FiLogOut size={18} />
+            </button>
           </div>
         </header>
 
@@ -197,23 +234,34 @@ export default function AppShell() {
         </main>
       </div>
 
+      {/* ── Command palette ── */}
       {commandOpen && createPortal(
         <div className="lf-command-overlay" onClick={() => setCommandOpen(false)} role="presentation">
           <div className="lf-command-dialog" onClick={(event) => event.stopPropagation()}>
             <div className="lf-command-dialog__input">
               <FiSearch size={16} />
-              <input autoFocus value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} placeholder="Jump to a page" />
+              <input
+                autoFocus
+                value={commandQuery}
+                onChange={(event) => setCommandQuery(event.target.value)}
+                placeholder="Jump to a page"
+              />
             </div>
             <div className="lf-command-dialog__results">
-              {commandItems.length ? commandItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button key={item.to} className="lf-command-result" onClick={() => goToCommandItem(item)} type="button">
-                    <span className="lf-command-result__icon"><Icon size={15} /></span>
-                    <span className="lf-command-result__copy"><strong>{item.label}</strong><small>{item.keywords?.join(" � ")}</small></span>
-                  </button>
-                );
-              }) : <div className="lf-empty-inline">No matching pages.</div>}
+              {commandItems.length
+                ? commandItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button key={item.to} className="lf-command-result" onClick={() => goToCommandItem(item)} type="button">
+                        <span className="lf-command-result__icon"><Icon size={15} /></span>
+                        <span className="lf-command-result__copy">
+                          <strong>{item.label}</strong>
+                          <small>{item.keywords?.join(" · ")}</small>
+                        </span>
+                      </button>
+                    );
+                  })
+                : <div className="lf-empty-inline">No matching pages.</div>}
             </div>
           </div>
         </div>,

@@ -4,6 +4,15 @@ import { FiArchive, FiDownload, FiFilter, FiMessageSquare, FiSearch, FiUploadClo
 import { api } from "../api/client.js";
 import CommentThread from "../components/CommentThread.jsx";
 
+const TABS = [
+  { label: "All", value: "" },
+  { label: "Pending", value: "pending" },
+  { label: "Approved", value: "approved" },
+  { label: "Rejected", value: "declined" },
+];
+
+const PAGE_SIZE = 10;
+
 export default function SubmissionsPage() {
   const reuploadInputRef = useRef(null);
   const [uploads, setUploads] = useState([]);
@@ -14,6 +23,7 @@ export default function SubmissionsPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(1);
 
   const loadUploads = useCallback(async () => {
     const response = await api.get("/uploads");
@@ -30,15 +40,43 @@ export default function SubmissionsPage() {
     if (freshUpload) setSelectedUpload(freshUpload);
   }, [selectedUpload, uploads]);
 
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setPage(1);
+  }, [query, status]);
+
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
     return uploads.filter((upload) => {
       const matchesStatus = !status || upload.status === status;
-      const matchesSearch = !search || [upload.filename, upload.uploader_name, upload.status, upload.id]
-        .some((value) => String(value || "").toLowerCase().includes(search));
+      const matchesSearch =
+        !search ||
+        [upload.filename, upload.uploader_name, upload.status, upload.id].some((value) =>
+          String(value || "").toLowerCase().includes(search)
+        );
       return matchesStatus && matchesSearch;
     });
   }, [uploads, query, status]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  function getPageNumbers() {
+    const pages = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (safePage > 3) pages.push("...");
+      for (let i = Math.max(2, safePage - 1); i <= Math.min(totalPages - 1, safePage + 1); i++) {
+        pages.push(i);
+      }
+      if (safePage < totalPages - 2) pages.push("...");
+      pages.push(totalPages);
+    }
+    return pages;
+  }
 
   function exportCsv() {
     const csv = [
@@ -50,10 +88,12 @@ export default function SubmissionsPage() {
         upload.total_columns,
         upload.uploader_name || "",
         upload.created_at || "",
-        upload.reviewed_at || ""
-      ])
+        upload.reviewed_at || "",
+      ]),
     ]
-      .map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll("\"", "\"\"")}"`).join(","))
+      .map((row) =>
+        row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")
+      )
       .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -80,12 +120,16 @@ export default function SubmissionsPage() {
     setReuploading(reuploadTarget.id);
     setReuploadError("");
     try {
-      await api.post(`/uploads/${reuploadTarget.id}/reupload`, form, { headers: { "Content-Type": "multipart/form-data" } });
+      await api.post(`/uploads/${reuploadTarget.id}/reupload`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       setReuploadTarget(null);
       await loadUploads();
     } catch (err) {
       const detail = err.response?.data?.detail;
-      setReuploadError(typeof detail === "string" ? detail : "Re-upload failed. Please check the file and try again.");
+      setReuploadError(
+        typeof detail === "string" ? detail : "Re-upload failed. Please check the file and try again."
+      );
     } finally {
       setReuploading("");
     }
@@ -101,18 +145,49 @@ export default function SubmissionsPage() {
         onChange={(event) => submitReupload(event.target.files?.[0])}
       />
 
+      {/* ── Title ── */}
+      <h1 className="lf-submissions-title">Submissions</h1>
+
+      {/* ── Tabs ── */}
+      <div className="lf-submissions-tabs">
+        {TABS.map((tab) => (
+          <button
+            key={tab.value}
+            className={`lf-submissions-tab${status === tab.value ? " is-active" : ""}`}
+            onClick={() => setStatus(tab.value)}
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Toolbar ── */}
       <section className="lf-submissions-toolbar">
         <label className="lf-submissions-search">
           <FiSearch size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search submissions..." />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search submissions..."
+          />
         </label>
 
         <div className="lf-submissions-toolbar__actions">
-          <button className="lf-submissions-filter-button" onClick={() => setShowFilters((value) => !value)} type="button">
+          <button
+            className="lf-submissions-filter-button"
+            onClick={() => setShowFilters((value) => !value)}
+            type="button"
+          >
             <FiFilter size={18} />
             <span>Filter</span>
           </button>
-          <button className="secondary-button" onClick={exportCsv} disabled={!filtered.length} type="button">
+          <button
+            className="secondary-button"
+            onClick={exportCsv}
+            disabled={!filtered.length}
+            type="button"
+          >
             <FiDownload /> Export
           </button>
         </div>
@@ -120,7 +195,11 @@ export default function SubmissionsPage() {
 
       {showFilters && (
         <section className="lf-submissions-filter-row">
-          <select className="form-input" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <select
+            className="form-input"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
             <option value="">All statuses</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
@@ -132,42 +211,61 @@ export default function SubmissionsPage() {
 
       {reuploadError && <div className="lf-submissions-error">{reuploadError}</div>}
 
+      {/* ── Table ── */}
       <section className="lf-submissions-table-wrap">
         <table className="lf-submissions-table">
           <thead>
             <tr>
-              <th className="is-checkbox"><input type="checkbox" aria-label="Select all" /></th>
+              <th className="is-checkbox">
+                <input type="checkbox" aria-label="Select all" />
+              </th>
               <th>ID</th>
               <th>User</th>
               <th>Type</th>
-              <th>Amount</th>
               <th>Status</th>
               <th>Submitted</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((upload, index) => {
+            {paginated.map((upload, index) => {
               const parts = inferSubmissionType(upload);
-              const amount = inferAmount(upload);
               const timestamp = formatSubmitted(upload.created_at);
+              const globalIndex = (safePage - 1) * PAGE_SIZE + index;
               return (
-                <tr key={upload.id} className={selectedUpload?.id === upload.id ? "is-selected" : ""}>
-                  <td className="is-checkbox"><input type="checkbox" aria-label={`Select ${upload.filename}`} /></td>
-                  <td className="mono-cell">{formatSubmissionCode(upload, index)}</td>
+                <tr
+                  key={upload.id}
+                  className={selectedUpload?.id === upload.id ? "is-selected" : ""}
+                >
+                  <td className="is-checkbox">
+                    <input type="checkbox" aria-label={`Select ${upload.filename}`} />
+                  </td>
+                  <td className="mono-cell">{formatSubmissionCode(upload, globalIndex)}</td>
                   <td className="lf-submissions-user">{upload.uploader_name || "Unknown User"}</td>
                   <td className="lf-submissions-type">{parts}</td>
-                  <td className="mono-cell">{amount}</td>
-                  <td><StatusPill status={upload.status} /></td>
+                  <td>
+                    <StatusPill status={upload.status} />
+                  </td>
                   <td>
                     <div className="lf-submissions-date">{timestamp.date}</div>
                     <div className="lf-submissions-time">{timestamp.time}</div>
                   </td>
                   <td>
                     <div className="lf-submissions-actions">
-                      <button className="lf-submissions-view" onClick={() => setSelectedUpload(upload)} type="button">View</button>
+                      <button
+                        className="lf-submissions-view"
+                        onClick={() => setSelectedUpload(upload)}
+                        type="button"
+                      >
+                        View
+                      </button>
                       {upload.status === "reupload_requested" && (
-                        <button className="lf-submissions-approve" onClick={() => startReupload(upload)} disabled={reuploading === upload.id} type="button">
+                        <button
+                          className="lf-submissions-approve"
+                          onClick={() => startReupload(upload)}
+                          disabled={reuploading === upload.id}
+                          type="button"
+                        >
                           <FiUploadCloud size={15} />
                           {reuploading === upload.id ? "Uploading..." : "Re-upload"}
                         </button>
@@ -187,16 +285,73 @@ export default function SubmissionsPage() {
             <span>Upload activity and review history will appear here.</span>
           </div>
         )}
+
+        {/* ── Footer: results count + pagination ── */}
+        {filtered.length > 0 && (
+          <div className="lf-submissions-footer">
+            <span className="lf-submissions-count">
+              Showing <strong>{(safePage - 1) * PAGE_SIZE + 1}</strong> to{" "}
+              <strong>{Math.min(safePage * PAGE_SIZE, filtered.length)}</strong> of{" "}
+              <strong>{filtered.length}</strong> results
+            </span>
+
+            <div className="lf-submissions-pagination">
+              <button
+                className="lf-page-btn"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                aria-label="Previous page"
+              >
+                ‹
+              </button>
+
+              {getPageNumbers().map((p, i) =>
+                p === "..." ? (
+                  <span key={`ellipsis-${i}`} className="lf-page-ellipsis">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    className={`lf-page-btn${safePage === p ? " is-active" : ""}`}
+                    onClick={() => setPage(p)}
+                    type="button"
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+
+              <button
+                className="lf-page-btn"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+                aria-label="Next page"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
+      {/* ── Detail panel ── */}
       {selectedUpload && (
         <section className="lf-submissions-conversation">
           <div className="lf-submissions-conversation__head">
             <div>
               <h2>{selectedUpload.filename}</h2>
-              <p>{selectedUpload.status} � {Number(selectedUpload.total_rows || 0).toLocaleString("en-IN")} rows � v{selectedUpload.version_number || 1}</p>
+              <p>
+                {selectedUpload.status} ·{" "}
+                {Number(selectedUpload.total_rows || 0).toLocaleString("en-IN")} rows · v
+                {selectedUpload.version_number || 1}
+              </p>
             </div>
-            <button className="secondary-button" onClick={() => setSelectedUpload(null)} type="button">
+            <button
+              className="secondary-button"
+              onClick={() => setSelectedUpload(null)}
+              type="button"
+            >
               Close
             </button>
           </div>
@@ -224,18 +379,12 @@ function inferSubmissionType(upload) {
   return "Submission";
 }
 
-function inferAmount(upload) {
-  const raw = Number(upload.total_amount || upload.amount || 0);
-  if (!raw) return "-";
-  return `?${raw.toLocaleString("en-IN")}`;
-}
-
 function formatSubmitted(value) {
   if (!value) return { date: "-", time: "" };
   const date = new Date(value);
   return {
     date: date.toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" }),
-    time: date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
+    time: date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }),
   };
 }
 
@@ -245,7 +394,11 @@ function StatusPill({ status }) {
     approved: "Approved",
     pending: "Pending",
     declined: "Rejected",
-    reupload_requested: "Under Review"
+    reupload_requested: "Under Review",
   };
-  return <span className={`lf-submissions-status lf-submissions-status-${normalized}`}>{labelMap[normalized] || normalized.replaceAll("_", " ")}</span>;
+  return (
+    <span className={`lf-submissions-status lf-submissions-status-${normalized}`}>
+      {labelMap[normalized] || normalized.replaceAll("_", " ")}
+    </span>
+  );
 }
