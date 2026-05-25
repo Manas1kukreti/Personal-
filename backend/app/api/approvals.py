@@ -7,8 +7,9 @@ from sqlalchemy.orm import selectinload
 
 from app.core.security import require_roles
 from app.db.session import get_db
-from app.models import Review, ReviewAction, ReviewStatus, Submission, SubmissionComment, User, UserRole
+from app.models import AuditAction, Review, ReviewAction, ReviewStatus, Submission, SubmissionComment, User, UserRole
 from app.schemas import ApprovalActionRequest, ApprovalRequest, RejectActionRequest, RejectRequest, ReuploadActionRequest, ReuploadRequest
+from app.services.audit import log_action
 from app.services.email import send_email, verify_review_token
 from app.services.websocket_manager import ws_manager
 
@@ -134,6 +135,19 @@ async def create_review(
     submission.review_status = ReviewStatus(action.value)
     db.add(Review(submission_id=submission.id, manager_id=manager.id, action=action, comment=None))
     await db.commit()
+
+    audit_action = {
+        ReviewAction.approved: AuditAction.upload_approved,
+        ReviewAction.declined: AuditAction.upload_declined,
+        ReviewAction.reupload_requested: AuditAction.reupload_requested,
+    }[action]
+    await log_action(
+        db,
+        manager,
+        audit_action,
+        target_id=submission.id,
+        target_label=submission.file_name,
+    )
 
     payload = {"upload_id": submission.id, "status": submission.review_status.value, "filename": submission.file_name}
     await ws_manager.broadcast("uploads", "upload_status", payload)

@@ -8,8 +8,9 @@ from sqlalchemy.orm import selectinload
 from app.api.uploads import verify_upload_access
 from app.core.security import require_roles
 from app.db.session import get_db
-from app.models import Submission, SubmissionComment, User, UserRole
+from app.models import AuditAction, Submission, SubmissionComment, User, UserRole
 from app.schemas import SubmissionCommentCreate, SubmissionCommentRead
+from app.services.audit import log_action
 from app.services.email import send_email
 from app.services.websocket_manager import ws_manager
 
@@ -85,6 +86,14 @@ async def add_submission_comment(
     ).scalar_one()
     response = comment_to_schema(comment)
     event_payload = response.model_dump(mode="json")
+    await log_action(
+        db,
+        user,
+        AuditAction.comment_added,
+        target_id=submission.id,
+        target_label=submission.file_name,
+        detail=message[:255],
+    )
     await ws_manager.broadcast("comments", "new_comment", event_payload)
     await ws_manager.broadcast("manager", "new_comment", event_payload)
     await ws_manager.broadcast("submissions", "new_comment", event_payload)

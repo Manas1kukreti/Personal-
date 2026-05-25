@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.uploads import create_upload
@@ -23,8 +23,9 @@ async def agent_login(payload: LoginRequest, db: AsyncSession = Depends(get_db))
 
 @router.post("/upload", response_model=UploadPreview)
 async def agent_upload(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee)),
 ) -> UploadPreview:
-    return await create_upload(file=file, db=db, user=user)
+    return await create_upload(background_tasks=background_tasks, file=file, db=db, user=user)

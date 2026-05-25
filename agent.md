@@ -226,6 +226,13 @@ Admin:
 Analytics:
 
 - `GET /api/analytics/kpis`
+- `date_from` and `date_to` filter KPI data by `transaction_rows.transaction_date`.
+- `status` filters KPI data by `transaction_rows.status` values: `Initiated`, `Pending`, `Successful`, or `Failed`.
+- KPI status counts are transaction-row counts, not submission review-status counts.
+- `Transaction Initiated` is the umbrella KPI: it equals all scoped transaction rows and all scoped transaction amount. `Pending`, `Successful`, and `Failed` are subsets of that initiated total.
+- `totals.revenue` and `totals.total_amount` are grand totals across all transaction statuses. `totals.cash` and `totals.approved_amount` represent `Successful` transaction amount.
+- Role scoping still comes from submissions/users: employees see their own rows, managers see assigned employees' rows, admins see all rows.
+- Latest upload and latest transactions are intentionally most recent for the role scope and are not narrowed by the KPI date filter.
 
 Health:
 
@@ -236,7 +243,7 @@ Health:
 Upload:
 
 - Only employees can upload through `/api/uploads`.
-- Upload creates a pending submission and transaction rows.
+- Upload creates a submission, persists typed transaction rows after parsing, and moves the submission into manager review when parsing succeeds.
 - If an employee has a manager and email is enabled, the manager receives a review link.
 
 Review:
@@ -298,7 +305,7 @@ The broadcaster is process-local. Multi-instance deployments need a shared bus s
 - When changing schema, update SQLAlchemy models, Alembic migrations, and this handoff/architecture docs. If `database/schema.sql` is still used for fresh DB initialization, keep it aligned too.
 - When changing upload response shape, update `schemas.py`, `uploads.py`, frontend pages/components, and docs.
 - Raw uploaded files are written to local disk or the Docker `backend_uploads` volume.
-- Parsing currently runs inline inside the upload request.
+- Parsing runs as a FastAPI background task after the raw file is saved; the submission is `processing` until parsing succeeds or fails.
 - Email sending is best-effort and disabled unless configured.
 - The current WebSocket manager is in memory and single-process only.
 

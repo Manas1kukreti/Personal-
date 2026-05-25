@@ -5,8 +5,9 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.security import require_roles
 from app.db.session import get_db
-from app.models import User, UserRole
+from app.models import AuditAction, User, UserRole
 from app.schemas import AdminEmployeeRead, AdminUserRead, AssignmentRequest
+from app.services.audit import log_action
 from app.services.email import send_email
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -74,7 +75,7 @@ async def assign_employee(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_roles(UserRole.admin)),
 ) -> AdminEmployeeRead:
-    return await save_assignment(payload, db, allow_existing=False)
+    return await save_assignment(payload, db, admin, allow_existing=False)
 
 
 @router.post("/reassign", response_model=AdminEmployeeRead)
@@ -83,10 +84,10 @@ async def reassign_employee(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_roles(UserRole.admin)),
 ) -> AdminEmployeeRead:
-    return await save_assignment(payload, db, allow_existing=True)
+    return await save_assignment(payload, db, admin, allow_existing=True)
 
 
-async def save_assignment(payload: AssignmentRequest, db: AsyncSession, allow_existing: bool) -> AdminEmployeeRead:
+async def save_assignment(payload: AssignmentRequest, db: AsyncSession, admin: User, allow_existing: bool) -> AdminEmployeeRead:
     employee = await db.get(User, payload.employee_id)
     manager = await db.get(User, payload.manager_id)
     if not employee or employee.role != UserRole.employee:
@@ -99,6 +100,14 @@ async def save_assignment(payload: AssignmentRequest, db: AsyncSession, allow_ex
     employee.manager_id = manager.id
     await db.commit()
     await db.refresh(employee, attribute_names=["manager"])
+    await log_action(
+        db,
+        admin,
+        AuditAction.user_reassigned if allow_existing else AuditAction.user_assigned,
+        target_id=employee.id,
+        target_label=employee.full_name,
+        detail=f"Manager: {manager.full_name}",
+    )
 
     await send_email(
         employee.email,

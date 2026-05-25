@@ -51,8 +51,8 @@ Open `http://localhost:5173`.
 - Manager approval queue with thread-based review feedback
 - Employee re-upload flow with version history
 - Real-time submission comment threads
-- Approved rows tracked through submission review status
-- KPI dashboard with upload counts, recent activity, revenue trends, and latest transactions
+- Transaction status analytics from `transaction_rows.status`
+- KPI dashboard driven by `transaction_rows.transaction_date`, with transaction counts, status subsets, amount totals, recent activity, trends, and latest transactions
 
 ## Architecture Docs
 

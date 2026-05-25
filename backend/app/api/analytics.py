@@ -6,51 +6,66 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_roles
 from app.db.session import get_db
-from app.models import ReviewStatus, Submission, TransactionRow, TransactionStatus, User, UserRole
+from app.models import Review, ReviewStatus, Submission, SubmissionComment, TransactionRow, TransactionStatus, User, UserRole
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
 @router.get("/kpis")
 async def get_kpis(
-    status: ReviewStatus | None = Query(default=None),
+    status: TransactionStatus | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee, UserRole.manager, UserRole.admin)),
 ) -> dict:
-    submission_filters = []
-    if status:
-        submission_filters.append(Submission.review_status == status)
-    if date_from:
-        submission_filters.append(Submission.uploaded_at >= date_from)
-    if date_to:
-        submission_filters.append(Submission.uploaded_at <= date_to)
+    role_filters = []
     if user.role == UserRole.employee:
-        submission_filters.append(Submission.user_id == user.id)
+        role_filters.append(Submission.user_id == user.id)
     elif user.role == UserRole.manager:
-        submission_filters.append(Submission.user_id.in_(select(User.id).where(User.manager_id == user.id)))
+        role_filters.append(Submission.user_id.in_(select(User.id).where(User.manager_id == user.id)))
 
-    submission_scope = select(Submission.id).where(*submission_filters)
-    total_submissions = await db.scalar(select(func.count()).select_from(Submission).where(*submission_filters))
-    approved_submissions = await db.scalar(
-        select(func.count()).select_from(Submission).where(*submission_filters, Submission.review_status == ReviewStatus.approved)
-    )
-    pending_submissions = await db.scalar(
-        select(func.count()).select_from(Submission).where(*submission_filters, Submission.review_status == ReviewStatus.pending)
-    )
-    total_rows = await db.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.submission_id.in_(submission_scope)))
-    total_revenue = await db.scalar(
-        select(func.coalesce(func.sum(TransactionRow.amount), 0))
-        .where(TransactionRow.submission_id.in_(submission_scope))
-        .where(Submission.review_status == ReviewStatus.approved)
+    transaction_filters = transaction_date_filters(date_from, date_to)
+    if status:
+        transaction_filters.append(TransactionRow.status == status)
+
+    transaction_scope = (
+        select(TransactionRow)
         .join(Submission, TransactionRow.submission_id == Submission.id)
+        .where(*role_filters, *transaction_filters)
+    )
+    transaction_scope_subquery = transaction_scope.subquery()
+    scoped_submission_ids = select(transaction_scope_subquery.c.submission_id).distinct()
+
+    total_transactions = await db.scalar(select(func.count()).select_from(transaction_scope_subquery))
+    initiated_transactions = total_transactions or 0
+    pending_transactions = await transaction_count_for_status(db, TransactionStatus.Pending, role_filters, transaction_filters)
+    successful_transactions = await transaction_count_for_status(db, TransactionStatus.Successful, role_filters, transaction_filters)
+    failed_transactions = await transaction_count_for_status(db, TransactionStatus.Failed, role_filters, transaction_filters)
+    reviewed_transactions = successful_transactions + failed_transactions
+    approval_rate = successful_transactions / reviewed_transactions if reviewed_transactions else 0
+    average_review_seconds = await db.scalar(
+        select(func.avg(func.extract("epoch", Review.reviewed_at - Submission.uploaded_at)))
+        .select_from(Submission)
+        .join(Review, Review.submission_id == Submission.id)
+        .where(*role_filters, Submission.id.in_(scoped_submission_ids))
+    )
+    total_rows = total_transactions or 0
+    total_amount = await db.scalar(
+        select(func.coalesce(func.sum(TransactionRow.amount), 0))
+        .join(Submission, TransactionRow.submission_id == Submission.id)
+        .where(*role_filters, *transaction_filters)
+    )
+    successful_amount = await db.scalar(
+        select(func.coalesce(func.sum(TransactionRow.amount), 0))
+        .join(Submission, TransactionRow.submission_id == Submission.id)
+        .where(*role_filters, *transaction_filters, TransactionRow.status == TransactionStatus.Successful)
     )
 
     recent_submissions = (
-        await db.execute(select(Submission).where(*submission_filters).order_by(desc(Submission.uploaded_at)).limit(5))
+        await db.execute(select(Submission).where(*role_filters, Submission.id.in_(scoped_submission_ids)).order_by(desc(Submission.uploaded_at)).limit(5))
     ).scalars().all()
-    latest_submission = await db.scalar(select(Submission).where(*submission_filters).order_by(desc(Submission.uploaded_at)).limit(1))
+    latest_submission = await db.scalar(select(Submission).where(*role_filters).order_by(desc(Submission.uploaded_at)).limit(1))
     latest_rows: list[TransactionRow] = []
     if latest_submission:
         latest_rows = (
@@ -64,8 +79,14 @@ async def get_kpis(
 
     trend_rows = (
         await db.execute(
-            select(func.date_trunc("day", Submission.uploaded_at).label("day"), func.count(Submission.id))
-            .where(*submission_filters)
+            select(
+                TransactionRow.transaction_date.label("day"),
+                func.count(TransactionRow.id).label("transactions"),
+                func.count(TransactionRow.id).filter(TransactionRow.status == TransactionStatus.Successful).label("approved"),
+                func.count(TransactionRow.id).filter(TransactionRow.status == TransactionStatus.Failed).label("declined"),
+            )
+            .join(Submission, TransactionRow.submission_id == Submission.id)
+            .where(*role_filters, *transaction_filters)
             .group_by("day")
             .order_by("day")
             .limit(30)
@@ -73,19 +94,12 @@ async def get_kpis(
     ).all()
 
     workflow_amounts = {
-        "initiated": float(await db.scalar(select(func.coalesce(func.sum(TransactionRow.amount), 0)).where(TransactionRow.submission_id.in_(submission_scope))) or 0),
-        "pending": float(await amount_for_status(db, ReviewStatus.pending, submission_filters)),
-        "approved": float(await amount_for_status(db, ReviewStatus.approved, submission_filters)),
-        "declined": float(await amount_for_status(db, ReviewStatus.declined, submission_filters)),
+        "initiated": float(total_amount or 0),
+        "pending": float(await amount_for_status(db, TransactionStatus.Pending, role_filters, transaction_filters)),
+        "approved": float(await amount_for_status(db, TransactionStatus.Successful, role_filters, transaction_filters)),
+        "declined": float(await amount_for_status(db, TransactionStatus.Failed, role_filters, transaction_filters)),
     }
-    approved_cash = float(
-        await db.scalar(
-            select(func.coalesce(func.sum(TransactionRow.amount), 0))
-            .join(Submission, TransactionRow.submission_id == Submission.id)
-            .where(*submission_filters, Submission.review_status == ReviewStatus.approved, TransactionRow.status == TransactionStatus.Successful)
-        )
-        or 0
-    )
+    approved_cash = float(successful_amount or 0)
 
     latest_chart_by_date: dict[str, float] = {}
     if latest_submission:
@@ -98,17 +112,27 @@ async def get_kpis(
 
     return {
         "totals": {
-            "uploads": total_submissions or 0,
-            "approved": approved_submissions or 0,
-            "pending": pending_submissions or 0,
+            "uploads": total_transactions or 0,
+            "initiated": initiated_transactions,
+            "approved": successful_transactions,
+            "pending": pending_transactions,
+            "declined": failed_transactions,
+            "reupload_requested": 0,
+            "processing": 0,
+            "parse_failed": 0,
+            "reviewed": reviewed_transactions,
+            "approval_rate": round(approval_rate * 100, 1),
+            "average_review_seconds": float(average_review_seconds or 0),
             "rows": int(total_rows or 0),
-            "revenue": float(total_revenue or 0),
+            "revenue": float(total_amount or 0),
+            "total_amount": float(total_amount or 0),
             "cash": approved_cash,
             "transaction_initiated_amount": workflow_amounts["initiated"],
             "pending_amount": workflow_amounts["pending"],
             "approved_amount": workflow_amounts["approved"],
             "declined_amount": workflow_amounts["declined"],
         },
+        "date_mode": "transaction",
         "workflow_amounts": workflow_amounts,
         "recent_uploads": [
             {
@@ -131,21 +155,80 @@ async def get_kpis(
             {"date": date, "amount": amount}
             for date, amount in sorted(latest_chart_by_date.items())
         ],
-        "upload_trends": [{"day": row[0], "uploads": row[1]} for row in trend_rows],
+        "upload_trends": [{"day": row[0], "uploads": row[1], "approved": row[2], "declined": row[3]} for row in trend_rows],
+        "personal": {
+            "scope": user.role.value,
+            "average_review_seconds": float(average_review_seconds or 0),
+            "approval_rate": round(approval_rate * 100, 1),
+            "rejection_reasons": await rejection_reasons(db, role_filters, scoped_submission_ids),
+        },
         "kpi_snapshots": [],
     }
 
 
-async def amount_for_status(db: AsyncSession, status: ReviewStatus, filters: list) -> float:
+def transaction_date_filters(date_from: datetime | None, date_to: datetime | None) -> list:
+    filters = []
+    if date_from:
+        filters.append(TransactionRow.transaction_date >= date_from.date())
+    if date_to:
+        filters.append(TransactionRow.transaction_date <= date_to.date())
+    return filters
+
+
+async def transaction_count_for_status(db: AsyncSession, status: TransactionStatus, role_filters: list, transaction_filters: list) -> int:
+    return await db.scalar(
+        select(func.count())
+        .select_from(TransactionRow)
+        .join(Submission, TransactionRow.submission_id == Submission.id)
+        .where(*role_filters, *transaction_filters, TransactionRow.status == status)
+    ) or 0
+
+
+async def amount_for_status(db: AsyncSession, status: TransactionStatus, role_filters: list, transaction_filters: list) -> float:
     return await db.scalar(
         select(func.coalesce(func.sum(TransactionRow.amount), 0))
         .join(Submission, TransactionRow.submission_id == Submission.id)
-        .where(*filters, Submission.review_status == status)
+        .where(*role_filters, *transaction_filters, TransactionRow.status == status)
     ) or 0
 
 
 async def row_count_for_submission(db: AsyncSession, submission_id) -> int:
     return await db.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.submission_id == submission_id)) or 0
+
+
+async def rejection_reasons(db: AsyncSession, role_filters: list, scoped_submission_ids) -> list[dict]:
+    rows = (
+        await db.execute(
+            select(Submission, SubmissionComment)
+            .select_from(Submission)
+            .join(SubmissionComment, SubmissionComment.submission_id == Submission.id)
+            .join(User, User.id == SubmissionComment.user_id)
+            .where(*role_filters, Submission.id.in_(scoped_submission_ids))
+            .where(Submission.review_status.in_([ReviewStatus.declined, ReviewStatus.reupload_requested]))
+            .where(User.role == UserRole.manager)
+            .order_by(desc(Submission.uploaded_at), desc(SubmissionComment.created_at))
+            .limit(25)
+        )
+    ).all()
+
+    reasons = []
+    seen = set()
+    for submission, comment in rows:
+        if submission.id in seen:
+            continue
+        seen.add(submission.id)
+        reasons.append(
+            {
+                "upload_id": submission.id,
+                "filename": submission.file_name,
+                "status": submission.review_status.value,
+                "reason": comment.message,
+                "created_at": comment.created_at,
+            }
+        )
+        if len(reasons) >= 5:
+            break
+    return reasons
 
 
 def format_transaction_row(row: TransactionRow, submission: Submission | None) -> dict:

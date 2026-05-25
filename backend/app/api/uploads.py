@@ -1,18 +1,21 @@
-from datetime import date
+import asyncio
+from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.security import require_roles
-from app.db.session import get_db
-from app.models import PaymentMethod, Review, ReviewStatus, Submission, TransactionRow, TransactionStatus, TransactionType, User, UserRole
+from app.db.session import AsyncSessionLocal, get_db
+from app.models import AuditAction, PaymentMethod, Review, ReviewStatus, Submission, TransactionRow, TransactionStatus, TransactionType, User, UserRole
 from app.schemas import UploadPreview, UploadSummary, UploadVersionRead
+from app.services.audit import log_action
 from app.services.email import manager_submission_link, send_email
 from app.services.excel_parser import parse_spreadsheet, validate_extension
 from app.services.websocket_manager import ws_manager
@@ -35,16 +38,18 @@ TRANSACTION_COLUMNS = [
 
 @router.post("", response_model=UploadPreview)
 async def create_upload(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee)),
 ) -> UploadPreview:
-    return await save_upload(file=file, db=db, user=user)
+    return await save_upload(file=file, db=db, user=user, background_tasks=background_tasks)
 
 
 @router.post("/{submission_id}/reupload", response_model=UploadPreview)
 async def reupload_submission(
     submission_id: UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee)),
@@ -67,7 +72,7 @@ async def reupload_submission(
     )
     if original.version_number < latest_version:
         raise HTTPException(status_code=409, detail="A newer version has already been submitted")
-    return await save_upload(file=file, db=db, user=user, parent_submission=original)
+    return await save_upload(file=file, db=db, user=user, background_tasks=background_tasks, parent_submission=original)
 
 
 async def save_upload(
@@ -75,6 +80,7 @@ async def save_upload(
     file: UploadFile,
     db: AsyncSession,
     user: User,
+    background_tasks: BackgroundTasks,
     parent_submission: Submission | None = None,
 ) -> UploadPreview:
     settings = get_settings()
@@ -115,6 +121,7 @@ async def save_upload(
         original_filename=file.filename or "upload",
         version_number=version_number,
         parent_submission_id=root_submission_id,
+        review_status=ReviewStatus.processing,
     )
     db.add(submission)
     await db.flush()
@@ -122,45 +129,27 @@ async def save_upload(
     path = upload_dir / f"{submission.id}{ext}"
     path.write_bytes(contents)
     submission.file_path = str(path)
-
-    await ws_manager.broadcast("uploads", "upload_progress", {"upload_id": submission.id, "progress": 40})
-
-    try:
-        parsed = parse_spreadsheet(path, settings.max_preview_rows)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Unable to parse spreadsheet: {exc}") from exc
-
-    if not parsed["validation"].get("valid", False):
-        await db.rollback()
-        raise HTTPException(status_code=422, detail=parsed["validation"])
-
-    rows = [transaction_row_from_record(submission.id, record) for record in parsed["records"]]
-    db.add_all(rows)
     await db.commit()
     await db.refresh(submission)
-    manager = await db.get(User, user.manager_id) if user.manager_id else None
 
     payload = {
         "upload_id": submission.id,
         "filename": submission.file_name,
         "status": submission.review_status.value,
-        "total_rows": len(rows),
+        "total_rows": 0,
     }
-    await ws_manager.broadcast("uploads", "upload_progress", {**payload, "progress": 100})
-    await ws_manager.broadcast("uploads", "upload.complete", payload)
-    await ws_manager.broadcast("manager", "new_upload", payload)
-    await ws_manager.broadcast("manager", "upload.new", payload)
+    await ws_manager.broadcast("uploads", "upload_progress", {**payload, "progress": 40})
+    await ws_manager.broadcast("uploads", "upload.processing", payload)
+    await ws_manager.broadcast("uploads", "upload_status", payload)
     await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
-    if manager:
-            await send_email(
-                manager.email,
-                "New upload pending review",
-                (
-                    f"Hello {manager.full_name},\n\n"
-                    f"{user.full_name} submitted {submission.file_name} for review.\n\n"
-                    f"Open it here: {manager_submission_link(submission.id, manager.id)}"
-                ),
-            )
+    background_tasks.add_task(
+        process_upload_file,
+        submission.id,
+        user.id,
+        path,
+        settings.max_preview_rows,
+        AuditAction.reupload_submitted if parent_submission else AuditAction.upload_created,
+    )
 
     return UploadPreview(
         upload_id=submission.id,
@@ -168,20 +157,128 @@ async def save_upload(
         status=submission.review_status.value,
         version_number=submission.version_number,
         parent_submission_id=submission.parent_submission_id,
-        total_rows=len(rows),
+        total_rows=0,
         total_columns=len(TRANSACTION_COLUMNS),
         created_at=submission.uploaded_at,
         columns=TRANSACTION_COLUMNS,
-        detected_types=parsed["detected_types"],
-        validation=parsed["validation"],
-        preview_rows=[transaction_row_to_dict(row) for row in rows[: settings.max_preview_rows]],
+        detected_types={},
+        validation={"valid": None, "status": "processing"},
+        preview_rows=[],
         version_history=await get_version_history(db, submission),
     )
+
+
+async def process_upload_file(
+    submission_id: UUID,
+    user_id: UUID,
+    path: Path,
+    max_preview_rows: int,
+    audit_action: AuditAction,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        submission = (
+            await db.execute(
+                select(Submission)
+                .options(selectinload(Submission.user))
+                .where(Submission.id == submission_id)
+            )
+        ).scalar_one_or_none()
+        user = await db.get(User, user_id)
+        if not submission or not user:
+            return
+
+        try:
+            parsed, row_values = await asyncio.to_thread(parse_transaction_records, path, max_preview_rows)
+        except Exception as exc:
+            await db.rollback()
+            detail = exc.detail if isinstance(exc, HTTPException) else f"Unable to parse spreadsheet: {exc}"
+            await mark_upload_parse_failed(db, submission, detail)
+            return
+
+        if not parsed["validation"].get("valid", False):
+            await mark_upload_parse_failed(db, submission, parsed["validation"])
+            return
+
+        try:
+            db.add_all(TransactionRow(submission_id=submission.id, **values) for values in row_values)
+            submission.review_status = ReviewStatus.pending
+            await db.commit()
+            await db.refresh(submission)
+        except Exception as exc:
+            await db.rollback()
+            detail = exc.detail if isinstance(exc, HTTPException) else f"Unable to save parsed spreadsheet: {exc}"
+            await mark_upload_parse_failed(db, submission, detail)
+            return
+
+        try:
+            await log_action(
+                db,
+                user,
+                audit_action,
+                target_id=submission.id,
+                target_label=submission.file_name,
+                detail=f"v{submission.version_number}",
+            )
+        except Exception:
+            await db.rollback()
+
+        await broadcast_upload_complete(db, submission, user, len(row_values))
+
+
+def parse_transaction_records(path: Path, max_preview_rows: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    parsed = parse_spreadsheet(path, max_preview_rows)
+    if not parsed["validation"].get("valid", False):
+        return parsed, []
+    return parsed, [transaction_values_from_record(record) for record in parsed["records"]]
+
+
+async def mark_upload_parse_failed(db: AsyncSession, submission: Submission, detail: Any) -> None:
+    await db.refresh(submission)
+    submission.review_status = ReviewStatus.parse_failed
+    await db.commit()
+    payload = {
+        "upload_id": submission.id,
+        "filename": submission.file_name,
+        "status": submission.review_status.value,
+        "error": detail,
+    }
+    await ws_manager.broadcast("uploads", "upload_progress", {**payload, "progress": 100})
+    await ws_manager.broadcast("uploads", "upload.failed", payload)
+    await ws_manager.broadcast("uploads", "upload_status", payload)
+    await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
+
+
+async def broadcast_upload_complete(db: AsyncSession, submission: Submission, user: User, total_rows: int) -> None:
+    manager = await db.get(User, user.manager_id) if user.manager_id else None
+    payload = {
+        "upload_id": submission.id,
+        "filename": submission.file_name,
+        "status": submission.review_status.value,
+        "total_rows": total_rows,
+    }
+    await ws_manager.broadcast("uploads", "upload_progress", {**payload, "progress": 100})
+    await ws_manager.broadcast("uploads", "upload.complete", payload)
+    await ws_manager.broadcast("uploads", "upload_status", payload)
+    await ws_manager.broadcast("manager", "new_upload", payload)
+    await ws_manager.broadcast("manager", "upload.new", payload)
+    await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
+    if manager:
+        await send_email(
+            manager.email,
+            "New upload pending review",
+            (
+                f"Hello {manager.full_name},\n\n"
+                f"{user.full_name} submitted {submission.file_name} for review.\n\n"
+                f"Open it here: {manager_submission_link(submission.id, manager.id)}"
+            ),
+        )
 
 
 @router.get("", response_model=list[UploadSummary])
 async def list_uploads(
     status: str | None = None,
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee, UserRole.manager, UserRole.admin)),
 ) -> list[UploadSummary]:
@@ -197,6 +294,13 @@ async def list_uploads(
     )
     if status:
         stmt = stmt.where(Submission.review_status == ReviewStatus(status))
+    if date_from or date_to:
+        transaction_date_scope = select(TransactionRow.submission_id)
+        if date_from:
+            transaction_date_scope = transaction_date_scope.where(TransactionRow.transaction_date >= date_from.date())
+        if date_to:
+            transaction_date_scope = transaction_date_scope.where(TransactionRow.transaction_date <= date_to.date())
+        stmt = stmt.where(Submission.id.in_(transaction_date_scope.distinct()))
     if user.role == UserRole.employee:
         stmt = stmt.where(Submission.user_id == user.id)
     elif user.role == UserRole.manager:
@@ -213,7 +317,7 @@ async def list_uploads(
             total_rows=row_count,
             total_columns=len(TRANSACTION_COLUMNS),
             uploader_name=submission.user.full_name if submission.user else None,
-            validation_passed=True,
+            validation_passed=submission.review_status != ReviewStatus.parse_failed,
             created_at=submission.uploaded_at,
             reviewed_at=submission.review.reviewed_at if submission.review else None,
         )
@@ -244,6 +348,12 @@ async def get_upload(
     ).scalars().all()
     row_count = await db.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.submission_id == upload_id))
 
+    validation = {"valid": True, "schema": "financial_transactions", "currency": "INR"}
+    if submission.review_status == ReviewStatus.processing:
+        validation = {"valid": None, "status": "processing"}
+    elif submission.review_status == ReviewStatus.parse_failed:
+        validation = {"valid": False, "status": "parse_failed"}
+
     return UploadPreview(
         upload_id=submission.id,
         filename=submission.file_name,
@@ -256,7 +366,7 @@ async def get_upload(
         reviewed_at=submission.review.reviewed_at if submission.review else None,
         columns=TRANSACTION_COLUMNS,
         detected_types={},
-        validation={"valid": True, "schema": "financial_transactions", "currency": "INR"},
+        validation=validation,
         preview_rows=[transaction_row_to_dict(row) for row in rows],
         version_history=await get_version_history(db, submission),
     )
@@ -296,20 +406,23 @@ def verify_upload_access(submission: Submission, user: User) -> None:
 
 
 def transaction_row_from_record(submission_id: UUID, record: dict) -> TransactionRow:
+    return TransactionRow(submission_id=submission_id, **transaction_values_from_record(record))
+
+
+def transaction_values_from_record(record: dict) -> dict[str, Any]:
     lowered = {str(key).strip().lower(): value for key, value in record.items()}
-    return TransactionRow(
-        submission_id=submission_id,
-        customer_name=required_text(lowered, "customer_name"),
-        account_number=required_text(lowered, "account_number"),
-        transaction_id=required_text(lowered, "transaction_id"),
-        transaction_date=required_date(lowered, "transaction_date"),
-        amount=float(lowered["amount"]),
-        transaction_type=TransactionType(canonical_value(lowered, "transaction_type", TransactionType)),
-        merchant_name=required_text(lowered, "merchant_name"),
-        invoice_id=required_text(lowered, "invoice_id"),
-        payment_method=PaymentMethod(canonical_value(lowered, "payment_method", PaymentMethod)),
-        status=TransactionStatus(canonical_value(lowered, "status", TransactionStatus)),
-    )
+    return {
+        "customer_name": required_text(lowered, "customer_name"),
+        "account_number": required_text(lowered, "account_number"),
+        "transaction_id": required_text(lowered, "transaction_id"),
+        "transaction_date": required_date(lowered, "transaction_date"),
+        "amount": float(lowered["amount"]),
+        "transaction_type": TransactionType(canonical_value(lowered, "transaction_type", TransactionType)),
+        "merchant_name": required_text(lowered, "merchant_name"),
+        "invoice_id": required_text(lowered, "invoice_id"),
+        "payment_method": PaymentMethod(canonical_value(lowered, "payment_method", PaymentMethod)),
+        "status": TransactionStatus(canonical_value(lowered, "status", TransactionStatus)),
+    }
 
 
 def transaction_row_to_dict(row: TransactionRow) -> dict:

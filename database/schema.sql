@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TYPE user_role AS ENUM ('employee', 'manager', 'admin');
-CREATE TYPE review_status AS ENUM ('pending', 'approved', 'declined', 'reupload_requested');
+CREATE TYPE review_status AS ENUM ('processing', 'pending', 'approved', 'declined', 'parse_failed', 'reupload_requested');
 CREATE TYPE review_action AS ENUM ('approved', 'declined', 'reupload_requested');
 CREATE TYPE transaction_type AS ENUM ('Payment', 'Debit', 'Credit', 'Transfer', 'Refund');
 CREATE TYPE payment_method AS ENUM ('NEFT', 'UPI', 'Credit Card', 'Debit Card', 'Net Banking');

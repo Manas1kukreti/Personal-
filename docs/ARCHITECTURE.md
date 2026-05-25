@@ -230,12 +230,12 @@ Validation behavior:
 
 1. An employee uploads a `.xlsx` or `.csv` file to `POST /api/uploads`.
 2. The backend validates file extension, size, and non-empty content.
-3. A `submissions` row is created with `review_status='pending'`, `version_number=1`, and no parent.
+3. A `submissions` row is created with `review_status='processing'`, `version_number=1`, and no parent.
 4. The raw file is written to the configured upload directory.
 5. Pandas/OpenPyXL parses the spreadsheet.
 6. `excel_parser.py` validates the required financial transaction schema.
 7. Valid records are converted into typed `transaction_rows`.
-8. The upload returns a preview response with columns, row count, detected types, validation metadata, preview rows, and version history.
+8. Valid parsing persists rows, changes the submission to `pending`, and returns/refreshes preview data for review.
 9. WebSocket events notify upload, manager, and dashboard clients.
 10. If the uploading employee has an assigned manager and email is enabled, the manager receives a review notification.
 
@@ -264,7 +264,7 @@ Workflow:
 
 Review feedback no longer lives primarily in `reviews.comment`. It lives in `submission_comments`. The `reviews.comment` column remains for compatibility but may be null.
 
-Approved data is not copied into a separate table. All uploaded transaction rows stay in `transaction_rows`, and approval state is represented by the parent `submissions.review_status`.
+Approved data is not copied into a separate table. All uploaded transaction rows stay in `transaction_rows`. Submission approval state is represented by `submissions.review_status`; transaction KPI state is represented by each row's `transaction_rows.status`.
 
 ## Submission Comment Thread
 
@@ -425,7 +425,7 @@ Admin:
 
 Analytics:
 
-- `GET /api/analytics/kpis`: return totals, workflow amounts, recent uploads, latest upload, latest transactions, transaction amount trend, and upload trend data. Requires `employee`, `manager`, or `admin`.
+- `GET /api/analytics/kpis`: return transaction-date-scoped totals, workflow amounts, recent uploads, latest upload, latest transactions, transaction amount trend, and transaction trend data. Requires `employee`, `manager`, or `admin`.
 
 Health:
 
@@ -481,28 +481,35 @@ The current WebSocket manager is in-memory, which is appropriate for a single ba
 
 ## Analytics Model
 
-`GET /api/analytics/kpis` aggregates data from `submissions` and `transaction_rows`.
+`GET /api/analytics/kpis` aggregates KPI values from `transaction_rows` and applies role scope through the parent `submissions` rows.
 
 Returned dashboard data includes:
 
-- Total uploads
-- Approved upload count
-- Pending upload count
-- Total transaction row count
-- Approved revenue total
-- Approved successful cash total
-- Initiated, pending, approved, and declined workflow amounts
+- Total transaction count
+- Transaction status counts from `transaction_rows.status`
+- Total amount across all transaction statuses
+- Successful transaction amount / cash total
+- Initiated, pending, successful, and failed workflow amounts
 - Recent uploads
 - Latest upload metadata
 - Latest upload transaction rows
 - Latest upload transaction amount trend by transaction date
-- Upload trend by upload date
+- Transaction trend grouped by `transaction_rows.transaction_date`
+
+KPI status semantics:
+
+- `Transaction Initiated` is the umbrella KPI. It equals all scoped transaction rows and all scoped transaction amount.
+- `Pending`, `Successful`, and `Failed` are subsets of `Transaction Initiated`.
+- `totals.uploads` is retained for frontend compatibility but represents total scoped transactions, not submission upload count.
+- `totals.revenue` and `totals.total_amount` are grand totals across all statuses.
+- `totals.cash` and `totals.approved_amount` represent `Successful` transaction amount.
+- Latest upload and latest transactions remain most recent within the user's role scope and are intentionally not filtered by `date_from` / `date_to`.
 
 Optional query filters:
 
-- `status`
-- `date_from`
-- `date_to`
+- `status`: filters by `transaction_rows.status` values `Initiated`, `Pending`, `Successful`, or `Failed`.
+- `date_from`: lower bound for `transaction_rows.transaction_date`.
+- `date_to`: upper bound for `transaction_rows.transaction_date`.
 
 Role scope:
 

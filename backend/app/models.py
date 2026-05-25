@@ -22,9 +22,11 @@ class UserRole(str, enum.Enum):
 
 
 class ReviewStatus(str, enum.Enum):
+    processing = "processing"
     pending = "pending"
     approved = "approved"
     declined = "declined"
+    parse_failed = "parse_failed"
     reupload_requested = "reupload_requested"
 
 
@@ -180,3 +182,35 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="refresh_tokens")
+
+
+class AuditAction(str, enum.Enum):
+    upload_created = "upload_created"
+    upload_approved = "upload_approved"
+    upload_declined = "upload_declined"
+    reupload_requested = "reupload_requested"
+    reupload_submitted = "reupload_submitted"
+    comment_added = "comment_added"
+    user_assigned = "user_assigned"
+    user_reassigned = "user_reassigned"
+    login = "login"
+    logout = "logout"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(50), nullable=False)
+    action: Mapped[AuditAction] = mapped_column(
+        Enum(AuditAction, name="audit_action", values_callable=enum_values),
+        nullable=False,
+    )
+    target_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    actor: Mapped["User | None"] = relationship(foreign_keys=[actor_id])
