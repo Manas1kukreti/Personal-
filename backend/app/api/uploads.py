@@ -13,26 +13,28 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.security import require_roles
 from app.db.session import AsyncSessionLocal, get_db
-from app.models import AuditAction, PaymentMethod, Review, ReviewStatus, Submission, TransactionRow, TransactionStatus, TransactionType, User, UserRole
+from app.models import AuditAction, Review, ReviewStatus, Submission, TransactionRow, User, UserRole
 from app.schemas import UploadPreview, UploadSummary, UploadVersionRead
 from app.services.audit import log_action
 from app.services.email import manager_submission_link, send_email
-from app.services.excel_parser import parse_spreadsheet, validate_extension
+from app.services.excel_parser import infer_amount, infer_date, infer_text, parse_entry_no, parse_spreadsheet, validate_extension
 from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
-TRANSACTION_COLUMNS = [
-    "customer_name",
-    "account_number",
-    "transaction_id",
-    "transaction_date",
-    "amount",
-    "transaction_type",
-    "merchant_name",
-    "invoice_id",
-    "payment_method",
-    "status",
+GL_COLUMNS = [
+    "date",
+    "entry_group",
+    "entry_line",
+    "sub_account",
+    "details",
+    "account_code",
+    "debit_amount",
+    "credit_amount",
+    "account_class",
+    "sub_class",
+    "country",
+    "region",
 ]
 
 
@@ -158,9 +160,9 @@ async def save_upload(
         version_number=submission.version_number,
         parent_submission_id=submission.parent_submission_id,
         total_rows=0,
-        total_columns=len(TRANSACTION_COLUMNS),
+        total_columns=len(GL_COLUMNS),
         created_at=submission.uploaded_at,
-        columns=TRANSACTION_COLUMNS,
+        columns=GL_COLUMNS,
         detected_types={},
         validation={"valid": None, "status": "processing"},
         preview_rows=[],
@@ -229,7 +231,7 @@ def parse_transaction_records(path: Path, max_preview_rows: int) -> tuple[dict[s
     parsed = parse_spreadsheet(path, max_preview_rows)
     if not parsed["validation"].get("valid", False):
         return parsed, []
-    return parsed, [transaction_values_from_record(record) for record in parsed["records"]]
+    return parsed, [gl_values_from_record(record) for record in parsed["records"]]
 
 
 async def mark_upload_parse_failed(db: AsyncSession, submission: Submission, detail: Any) -> None:
@@ -294,13 +296,10 @@ async def list_uploads(
     )
     if status:
         stmt = stmt.where(Submission.review_status == ReviewStatus(status))
-    if date_from or date_to:
-        transaction_date_scope = select(TransactionRow.submission_id)
-        if date_from:
-            transaction_date_scope = transaction_date_scope.where(TransactionRow.transaction_date >= date_from.date())
-        if date_to:
-            transaction_date_scope = transaction_date_scope.where(TransactionRow.transaction_date <= date_to.date())
-        stmt = stmt.where(Submission.id.in_(transaction_date_scope.distinct()))
+    if date_from:
+        stmt = stmt.where(Submission.uploaded_at >= date_from)
+    if date_to:
+        stmt = stmt.where(Submission.uploaded_at <= date_to)
     if user.role == UserRole.employee:
         stmt = stmt.where(Submission.user_id == user.id)
     elif user.role == UserRole.manager:
@@ -315,7 +314,7 @@ async def list_uploads(
             version_number=submission.version_number,
             parent_submission_id=submission.parent_submission_id,
             total_rows=row_count,
-            total_columns=len(TRANSACTION_COLUMNS),
+            total_columns=len(GL_COLUMNS),
             uploader_name=submission.user.full_name if submission.user else None,
             validation_passed=submission.review_status != ReviewStatus.parse_failed,
             created_at=submission.uploaded_at,
@@ -332,7 +331,11 @@ async def get_upload(
     user: User = Depends(require_roles(UserRole.employee, UserRole.manager, UserRole.admin)),
 ) -> UploadPreview:
     submission = (
-        await db.execute(select(Submission).options(selectinload(Submission.user), selectinload(Submission.review)).where(Submission.id == upload_id))
+        await db.execute(
+            select(Submission)
+            .options(selectinload(Submission.user), selectinload(Submission.review))
+            .where(Submission.id == upload_id)
+        )
     ).scalar_one_or_none()
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
@@ -342,13 +345,15 @@ async def get_upload(
         await db.execute(
             select(TransactionRow)
             .where(TransactionRow.submission_id == upload_id)
-            .order_by(TransactionRow.transaction_date, TransactionRow.transaction_id)
+            .order_by(TransactionRow.date, TransactionRow.entry_group, TransactionRow.entry_line)
             .limit(get_settings().max_preview_rows)
         )
     ).scalars().all()
-    row_count = await db.scalar(select(func.count()).select_from(TransactionRow).where(TransactionRow.submission_id == upload_id))
+    row_count = await db.scalar(
+        select(func.count()).select_from(TransactionRow).where(TransactionRow.submission_id == upload_id)
+    )
 
-    validation = {"valid": True, "schema": "financial_transactions", "currency": "INR"}
+    validation = {"valid": True, "schema": "general_ledger", "currency": "INR"}
     if submission.review_status == ReviewStatus.processing:
         validation = {"valid": None, "status": "processing"}
     elif submission.review_status == ReviewStatus.parse_failed:
@@ -361,13 +366,13 @@ async def get_upload(
         version_number=submission.version_number,
         parent_submission_id=submission.parent_submission_id,
         total_rows=row_count or 0,
-        total_columns=len(TRANSACTION_COLUMNS),
+        total_columns=len(GL_COLUMNS),
         created_at=submission.uploaded_at,
         reviewed_at=submission.review.reviewed_at if submission.review else None,
-        columns=TRANSACTION_COLUMNS,
+        columns=GL_COLUMNS,
         detected_types={},
         validation=validation,
-        preview_rows=[transaction_row_to_dict(row) for row in rows],
+        preview_rows=[gl_row_to_dict(row) for row in rows],
         version_history=await get_version_history(db, submission),
     )
 
@@ -378,7 +383,9 @@ async def get_version_history(db: AsyncSession, submission: Submission) -> list[
         await db.execute(
             select(Submission)
             .options(selectinload(Submission.review))
-            .where((Submission.id == root_submission_id) | (Submission.parent_submission_id == root_submission_id))
+            .where(
+                (Submission.id == root_submission_id) | (Submission.parent_submission_id == root_submission_id)
+            )
             .order_by(Submission.version_number)
         )
     ).scalars().all()
@@ -405,66 +412,57 @@ def verify_upload_access(submission: Submission, user: User) -> None:
     raise HTTPException(status_code=404, detail="Submission not found")
 
 
-def transaction_row_from_record(submission_id: UUID, record: dict) -> TransactionRow:
-    return TransactionRow(submission_id=submission_id, **transaction_values_from_record(record))
+def gl_values_from_record(record: dict) -> dict[str, Any]:
+    """
+    Build a dict of TransactionRow kwargs from a parsed GL record.
+    Keys in `record` match the spreadsheet column names (lowercased by excel_parser).
+    'class' column maps to account_class (reserved keyword workaround).
+    """
+    lowered = {str(k).strip().lower(): v for k, v in record.items()}
 
+    raw_entry_no = lowered.get("entry_no")
+    if raw_entry_no is None:
+        raise HTTPException(status_code=422, detail="Missing required field: entry_no")
+    entry_group, entry_line = parse_entry_no(raw_entry_no)
 
-def transaction_values_from_record(record: dict) -> dict[str, Any]:
-    lowered = {str(key).strip().lower(): value for key, value in record.items()}
+    debit_amount, credit_amount = infer_amount(lowered)
+
+    raw_date = infer_date(lowered, "voucher_date")
+    if raw_date is None:
+        raise HTTPException(status_code=422, detail="Missing or invalid field: voucher_date")
+
     return {
-        "customer_name": required_text(lowered, "customer_name"),
-        "account_number": required_text(lowered, "account_number"),
-        "transaction_id": required_text(lowered, "transaction_id"),
-        "transaction_date": required_date(lowered, "transaction_date"),
-        "amount": float(lowered["amount"]),
-        "transaction_type": TransactionType(canonical_value(lowered, "transaction_type", TransactionType)),
-        "merchant_name": required_text(lowered, "merchant_name"),
-        "invoice_id": required_text(lowered, "invoice_id"),
-        "payment_method": PaymentMethod(canonical_value(lowered, "payment_method", PaymentMethod)),
-        "status": TransactionStatus(canonical_value(lowered, "status", TransactionStatus)),
+        "date": raw_date.date() if hasattr(raw_date, "date") else raw_date,
+        "entry_group": entry_group,
+        "entry_line": entry_line,
+        "sub_account": infer_text(lowered, "sub_account"),
+        "details": infer_text(lowered, "details"),
+        "account_code": infer_text(lowered, "account_code"),
+        "debit_amount": debit_amount,
+        "credit_amount": credit_amount,
+        # spreadsheet column is 'class'; DB column is 'account_class'
+        "account_class": infer_text(lowered, "class"),
+        "sub_class": infer_text(lowered, "sub_class"),
+        "country": infer_text(lowered, "country"),
+        "region": infer_text(lowered, "region"),
     }
 
 
-def transaction_row_to_dict(row: TransactionRow) -> dict:
+def gl_row_to_dict(row: TransactionRow) -> dict:
+    """Serialize a TransactionRow ORM object to a JSON-safe dict."""
     return {
-        "id": row.id,
-        "submission_id": row.submission_id,
-        "customer_name": row.customer_name,
-        "account_number": row.account_number,
-        "transaction_id": row.transaction_id,
-        "transaction_date": row.transaction_date.isoformat(),
-        "amount": float(row.amount),
-        "transaction_type": row.transaction_type.value,
-        "merchant_name": row.merchant_name,
-        "invoice_id": row.invoice_id,
-        "payment_method": row.payment_method.value,
-        "status": row.status.value,
-        "currency": "INR",
+        "id": str(row.id),
+        "submission_id": str(row.submission_id),
+        "date": row.date.isoformat() if row.date else None,
+        "entry_group": row.entry_group,
+        "entry_line": row.entry_line,
+        "sub_account": row.sub_account,
+        "details": row.details,
+        "account_code": row.account_code,
+        "debit_amount": float(row.debit_amount) if row.debit_amount is not None else None,
+        "credit_amount": float(row.credit_amount) if row.credit_amount is not None else None,
+        "account_class": row.account_class,
+        "sub_class": row.sub_class,
+        "country": row.country,
+        "region": row.region,
     }
-
-
-def required_text(payload: dict, key: str) -> str:
-    value = payload.get(key)
-    if value is None or str(value).strip() == "":
-        raise HTTPException(status_code=422, detail=f"Missing required field: {key}")
-    return str(value).strip()
-
-
-def required_date(payload: dict, key: str) -> date:
-    parsed = pd.to_datetime(payload.get(key), errors="coerce")
-    if pd.isna(parsed):
-        raise HTTPException(status_code=422, detail=f"Invalid date field: {key}")
-    return parsed.date()
-
-
-def canonical_value(payload: dict, key: str, enum_type: type) -> str:
-    value = required_text(payload, key)
-    normalized_value = normalize_enum_text(value)
-    for option in enum_type:
-        if normalize_enum_text(option.value) == normalized_value or normalize_enum_text(option.name) == normalized_value:
-            return option.value
-    raise HTTPException(status_code=422, detail=f"Invalid value for {key}")
-
-
-def normalize_enum_text(value: str) -> str:
-    return "".join(character for character in value.lower() if character.isalnum())

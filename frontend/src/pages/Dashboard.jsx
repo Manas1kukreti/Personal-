@@ -8,7 +8,7 @@ import {
 import { api } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { useWebSocket } from "../hooks/useWebSocket.js";
-
+ 
 // ─── Color tokens (indigo theme) ─────────────────────────────────────────────
 const C = {
   pageBg:      "#F0F1FA",
@@ -19,8 +19,8 @@ const C = {
   primaryLight:"#EEF2FF",
   textHead:    "#1E1F3B",
   textBody:    "#3D3F5C",
-  textMuted:   "#9BA1B7",
-  textFaint:   "#B0B4C8",
+  textMuted:   "#1E1F3B",
+  textFaint:   "#3D3F5C",
   divider:     "#E2E5F5",
   up:          "#22C55E",
   down:        "#EF4444",
@@ -28,21 +28,21 @@ const C = {
   chartBar1:   "#6366F1",
   chartBar2:   "#C7D2FE",
 };
-
+ 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const MONTHS = ["January","February","March","April","May","June",
                 "July","August","September","October","November","December"];
 const DAYS   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
-const STATUS_OPTIONS = ["All statuses","Initiated","Pending","Successful","Failed"];
-const DATE_PRESETS   = [
+const DATE_PRESETS = [
+  { key: "all",           label: "All Time" },
   { key: "this_month",    label: "This Month" },
   { key: "six_months",    label: "6 Months" },
   { key: "twelve_months", label: "12 Months" },
   { key: "custom",        label: "Custom Range" },
 ];
-
+ 
 function fmt(n) { return `₹${Number(n).toLocaleString("en-IN")}`; }
-
+ 
 function datesForPreset(preset) {
   const today = new Date();
   const end   = toDateInputValue(today);
@@ -54,12 +54,12 @@ function datesForPreset(preset) {
     return { dateFrom: toDateInputValue(new Date(today.getFullYear(), today.getMonth() - 11, 1)), dateTo: end };
   return { dateFrom: "", dateTo: "" };
 }
-
+ 
 function toDateInputValue(date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
     .toISOString().slice(0, 10);
 }
-
+ 
 // ─── Delta Badge ──────────────────────────────────────────────────────────────
 function DeltaBadge({ pct, up }) {
   if (pct == null) return null;
@@ -69,7 +69,7 @@ function DeltaBadge({ pct, up }) {
     </span>
   );
 }
-
+ 
 // ─── Mini Calendar ────────────────────────────────────────────────────────────
 function MiniCalendar({ year, month, selected, hovered, onDayClick, onDayHover, today }) {
   const firstDay    = new Date(year, month, 1).getDay();
@@ -77,7 +77,7 @@ function MiniCalendar({ year, month, selected, hovered, onDayClick, onDayHover, 
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
-
+ 
   const inRange = (d) => {
     if (!d) return false;
     const anchor = selected.from, end = selected.to || hovered;
@@ -89,7 +89,7 @@ function MiniCalendar({ year, month, selected, hovered, onDayClick, onDayHover, 
   const isEnd    = (d) => d && selected.to   && d.toDateString() === selected.to.toDateString();
   const isToday  = (d) => d && d.toDateString() === today.toDateString();
   const isFuture = (d) => d && d > today;
-
+ 
   return (
     <div style={{ flex: 1 }}>
       <div style={{ textAlign: "center", fontWeight: 600, fontSize: 13, color: C.textBody, marginBottom: 12 }}>
@@ -122,7 +122,7 @@ function MiniCalendar({ year, month, selected, hovered, onDayClick, onDayHover, 
     </div>
   );
 }
-
+ 
 // ─── Date Range Modal ─────────────────────────────────────────────────────────
 function DateRangeModal({ onClose, onApply }) {
   const today     = new Date();
@@ -133,27 +133,27 @@ function DateRangeModal({ onClose, onApply }) {
   const [selected,  setSelected]  = useState({ from: null, to: null });
   const [hovered,   setHovered]   = useState(null);
   const ref = useRef(null);
-
+ 
   const month2 = viewMonth === 11 ? 0 : viewMonth + 1;
   const year2  = viewMonth === 11 ? viewYear + 1 : viewYear;
   const prevMonth = () => { if (viewMonth === 0) { setViewMonth(11); setViewYear(y=>y-1); } else setViewMonth(m=>m-1); };
   const nextMonth = () => { if (viewMonth === 11) { setViewMonth(0); setViewYear(y=>y+1); } else setViewMonth(m=>m+1); };
-
+ 
   const handleDayClick = (d) => {
     if (!selected.from || selected.to) setSelected({ from: d, to: null });
     else if (d < selected.from) setSelected({ from: d, to: selected.from });
     else setSelected({ from: selected.from, to: d });
   };
-
+ 
   useEffect(() => {
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [onClose]);
-
+ 
   const fmtL   = (d) => d ? `${MONTHS[d.getMonth()].slice(0,3)} ${String(d.getDate()).padStart(2,"0")}, ${d.getFullYear()}` : "";
   const canApply = selected.from && selected.to;
-
+ 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.18)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "flex-end", paddingTop: 64, paddingRight: 24 }}>
       <div ref={ref} style={{ background: "#fff", border: `1px solid ${C.cardBorder}`, borderRadius: 16, boxShadow: "0 8px 40px rgba(99,102,241,0.13)", padding: 24, width: 560 }}>
@@ -189,7 +189,7 @@ function DateRangeModal({ onClose, onApply }) {
     </div>
   );
 }
-
+ 
 function NavBtn({ onClick, children }) {
   return (
     <button onClick={onClick} style={{ padding: "4px 10px", background: "#F6F7FD", border: `1px solid ${C.cardBorder}`, borderRadius: 6, cursor: "pointer", color: C.textMuted, fontSize: 13, fontWeight: 600 }}>
@@ -197,20 +197,13 @@ function NavBtn({ onClick, children }) {
     </button>
   );
 }
-
+ 
 // ─── Filter Panel ─────────────────────────────────────────────────────────────
 function FilterPanel({ filters, onFilterChange, datePreset, onPresetChange, customLabel }) {
   return (
     <div style={{ background: "#F6F7FD", border: `1px solid ${C.divider}`, borderRadius: 12, padding: "16px 20px", marginBottom: 20, display: "flex", gap: 32, alignItems: "flex-start", flexWrap: "wrap" }}>
-      <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Transaction Status</span>
-        <select value={filters.status} onChange={e => onFilterChange("status", e.target.value)}
-          style={{ fontSize: 13, padding: "7px 12px", border: `1px solid ${C.cardBorder}`, borderRadius: 9, background: "#fff", color: C.textBody, cursor: "pointer", minWidth: 160 }}>
-          {STATUS_OPTIONS.map(s => <option key={s}>{s}</option>)}
-        </select>
-      </label>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Transaction Date</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>GL Date Range</span>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {DATE_PRESETS.map(p => {
             const active = datePreset === p.key;
@@ -231,7 +224,7 @@ function FilterPanel({ filters, onFilterChange, datePreset, onPresetChange, cust
     </div>
   );
 }
-
+ 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, delta }) {
   return (
@@ -245,7 +238,7 @@ function KpiCard({ label, value, delta }) {
     </div>
   );
 }
-
+ 
 // ─── Amount Card ──────────────────────────────────────────────────────────────
 function AmountCard({ label, amount, sub, delta, warn }) {
   return (
@@ -259,7 +252,7 @@ function AmountCard({ label, amount, sub, delta, warn }) {
     </div>
   );
 }
-
+ 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 function CustomTooltip({ active, payload, label, currency }) {
   if (!active || !payload?.length) return null;
@@ -276,7 +269,7 @@ function CustomTooltip({ active, payload, label, currency }) {
     </div>
   );
 }
-
+ 
 // ─── Header Button ────────────────────────────────────────────────────────────
 function HeaderBtn({ icon, label, onClick, active }) {
   return (
@@ -293,25 +286,21 @@ function HeaderBtn({ icon, label, onClick, active }) {
     </button>
   );
 }
-
+ 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const { user } = useAuth();
-
+ 
   const [data,        setData]        = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showPicker,  setShowPicker]  = useState(false);
-  const [datePreset,  setDatePreset]  = useState("six_months");
-  const [customLabel, setCustomLabel] = useState(null);
-  const [filters,     setFilters]     = useState({
-    status: "All statuses",
-    ...datesForPreset("six_months"),
-  });
-
+  const [datePreset,  setDatePreset]  = useState("all");
+  const [filters,     setFilters]     = useState({ dateFrom: "", dateTo: "" });
+  const [txMetric,    setTxMetric]    = useState("total");
+  const [txPreset,    setTxPreset]    = useState("all");
+ 
   const loadKpis = useCallback(async () => {
     const params = new URLSearchParams();
-    if (filters.status && filters.status !== "All statuses")
-      params.set("status", filters.status);
     if (filters.dateFrom) params.set("date_from", `${filters.dateFrom}T00:00:00`);
     if (filters.dateTo)   params.set("date_to",   `${filters.dateTo}T23:59:59`);
     const response = await api.get(
@@ -319,9 +308,9 @@ export default function Dashboard() {
     );
     setData(response.data);
   }, [filters]);
-
+ 
   useEffect(() => { loadKpis(); }, [loadKpis]);
-
+ 
   useWebSocket(
     "dashboard",
     useCallback(
@@ -329,13 +318,13 @@ export default function Dashboard() {
       [loadKpis]
     )
   );
-
+ 
   const handlePresetChange = (key) => {
     setDatePreset(key);
     if (key === "custom") { setShowPicker(true); }
     else { setCustomLabel(null); setShowPicker(false); setFilters(f => ({ ...f, ...datesForPreset(key) })); }
   };
-
+ 
   const handleCustomApply = ({ from, to }) => {
     setFilters(f => ({ ...f, dateFrom: toDateInputValue(from), dateTo: toDateInputValue(to) }));
     const f2 = `${MONTHS[from.getMonth()].slice(0,3)} ${from.getDate()}`;
@@ -343,32 +332,78 @@ export default function Dashboard() {
     setCustomLabel(`${f2} – ${t2}`);
     setShowPicker(false);
   };
-
+ 
   const exportCsv = () => {
     if (!data) return;
     const t = data.totals || {};
-    const rows = [["Metric","Value"],["In Review",t.pending??0],["Approved",t.approved??0],["Total Amount",t.total_amount??0],["Rejected",t.declined??0],["Completed",t.reviewed??0]];
+    const rows = [
+      ["Metric","Value"],
+      ["Total Rows", t.rows ?? 0],
+      ["Total Debits", t.total_debits ?? 0],
+      ["Total Credits", t.total_credits ?? 0],
+      ["Net", t.net ?? 0],
+      ["Total Entry Groups", t.total_entry_groups ?? 0],
+      ["Balanced Entry Groups", t.balanced_entry_groups ?? 0],
+      ["Unbalanced Entry Groups", t.unbalanced_entry_groups ?? 0],
+      ["Uploads", t.uploads ?? 0],
+      ["Approved", t.approved ?? 0],
+      ["Pending", t.pending ?? 0],
+      ["Declined", t.declined ?? 0],
+      ["Approval Rate", `${t.approval_rate ?? 0}%`],
+    ];
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([rows.map(r=>r.join(",")).join("\n")], { type: "text/csv" }));
     a.download = `ledgerflow-dashboard-${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
   };
+ 
+  const totals = data?.totals || {};
+ 
+  // ── Chart data ──────────────────────────────────────────────────────────────
+  // Daily debit/credit trend
+  const dailyTrend = (data?.daily_trends || []).map(item => ({
+    day:     new Date(item.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" }),
+    debits:  Number(item.debits  || 0),
+    credits: Number(item.credits || 0),
+  }));
+ 
+  // Account class breakdown bar chart
+  const classBreakdown = (data?.account_class_breakdown || []).map(item => ({
+    name:    item.account_class || "Unknown",
+    debits:  Number(item.debits  || 0),
+    credits: Number(item.credits || 0),
+  }));
 
-  const totals  = data?.totals || {};
-  const trend   = (data?.upload_trends || []).map(item => ({ day: new Date(item.day).toLocaleDateString(), uploads: item.uploads }));
-  const revenue = (data?.transaction_amount_trend || []).map(item => ({ date: new Date(item.date).toLocaleDateString(), revenue: Number(item.amount||0), expenses: Number(item.expenses||0) }));
+  const txPresetDates = (preset) => {
+    const today = new Date();
+    if (preset === "3m")  return new Date(today.getFullYear(), today.getMonth() - 3, 1);
+    if (preset === "6m")  return new Date(today.getFullYear(), today.getMonth() - 6, 1);
+    if (preset === "12m") return new Date(today.getFullYear(), today.getMonth() - 12, 1);
+    return null;
+  };
 
+  const txTrend = (data?.daily_transaction_trends || [])
+    .filter(item => {
+      if (txPreset === "all") return true;
+      const from = txPresetDates(txPreset);
+      return from ? new Date(item.date) >= from : true;
+    })
+    .map(item => ({
+      day:   new Date(item.date).toLocaleDateString("en-IN", { month: "short", day: "numeric" }),
+      value: Number(item[txMetric] || 0),
+    }));
+ 
   return (
     <div style={{ background: "transparent", minHeight: "100vh", padding: "28px 32px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-
+ 
       {showPicker && <DateRangeModal onClose={() => setShowPicker(false)} onApply={handleCustomApply} />}
-
+ 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.textHead }}>Analytics Overview</h1>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: C.textMuted }}>
-            {user?.role === "employee" ? "Monitor your upload performance and key metrics" : "Monitor your transaction performance and key metrics"}
+            {user?.role === "employee" ? "Monitor your upload performance and key metrics" : "Monitor your general ledger performance and key metrics"}
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -380,87 +415,144 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
-
+ 
       {/* Filters */}
       {showFilters && (
         <FilterPanel filters={filters} onFilterChange={(k,v) => setFilters(f=>({...f,[k]:v}))} datePreset={datePreset} onPresetChange={handlePresetChange} customLabel={customLabel} />
       )}
-
+ 
       {/* Loading guard */}
       {!data ? (
         <div style={{ textAlign: "center", padding: 60, color: C.textMuted, fontSize: 13 }}>Loading...</div>
       ) : (
         <>
-          {/* KPI Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 16 }}>
-            <KpiCard label="In Review"    value={totals.pending   ?? 0} delta={{ pct: 8.2,  up: false }} />
-            <KpiCard label="Approved"     value={totals.approved  ?? 0} delta={{ pct: 12.5, up: true  }} />
-            <KpiCard label="Total Amount" value={fmt(totals.total_amount ?? 0)} delta={{ pct: 5.3, up: true }} />
-            <KpiCard label="Rejected"     value={totals.declined  ?? 0} delta={{ pct: 15.6, up: false }} />
-            <KpiCard label="Completed"    value={totals.reviewed  ?? 0} delta={{ pct: 18.9, up: true  }} />
+          {/* KPI Cards — row 1: submission workflow counts */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 16 }}>
+            <KpiCard label="In Review"       value={totals.pending             ?? 0} />
+            <KpiCard label="Approved"        value={totals.approved            ?? 0} delta={{ pct: 12.5, up: true }} />
+            <KpiCard label="Declined"        value={totals.declined            ?? 0} delta={{ pct: 15.6, up: false }} />
+            <KpiCard label="Total GL Rows"   value={(totals.rows               ?? 0).toLocaleString("en-IN")} />
           </div>
-
-          {/* Amount Cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
-            <AmountCard label="Transaction Initiated" amount={totals.transaction_initiated_amount ?? totals.total_amount ?? 0} sub={`${Number(totals.uploads ?? 0).toLocaleString("en-IN")} total`} />
-            <AmountCard label="Pending"               amount={totals.pending_amount ?? 0}  sub="Awaiting review" />
-            <AmountCard label="Successful"            amount={totals.approved_amount ?? totals.cash ?? 0} sub={`${Number(totals.approval_rate ?? 0).toFixed(1)}% rate`} delta={{ pct: 6.2, up: true }} />
-            <AmountCard label="Failed"                amount={totals.declined_amount ?? 0} sub="Needs attention" delta={{ pct: 3.1, up: true }} warn />
+ 
+          {/* Amount Cards — row 2: GL financials */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
+            <AmountCard
+              label="Total Debits"
+              amount={totals.total_debits ?? 0}
+              sub={`${(totals.rows ?? 0).toLocaleString("en-IN")} rows`}
+            />
+            <AmountCard
+              label="Total Credits"
+              amount={totals.total_credits ?? 0}
+              sub={`${totals.approval_rate ?? 0}% approval rate`}
+              delta={{ pct: 6.2, up: true }}
+            />
+            <AmountCard
+              label="Net Position"
+              amount={totals.net ?? 0}
+              sub={`Debits minus credits`}
+              warn={(totals.net ?? 0) < 0}
+            />
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: "18px 22px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Balanced Entries</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: C.textHead }}>{totals.balanced_entry_groups ?? 0}</div>
+              <div style={{ fontSize: 12, color: (totals.unbalanced_entry_groups ?? 0) > 0 ? C.warn : C.textFaint, marginTop: 4 }}>
+                {(totals.unbalanced_entry_groups ?? 0) > 0 ? `⚠ ${totals.unbalanced_entry_groups} unbalanced` : "All entries balanced ✓"}
+              </div>
+            </div>
+            <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: "18px 22px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Under Investigation</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: (totals.unbalanced_entry_groups ?? 0) > 0 ? C.warn : C.textHead }}>
+                {totals.unbalanced_entry_groups ?? 0}
+              </div>
+              <div style={{ fontSize: 12, color: (totals.unbalanced_entry_groups ?? 0) > 0 ? C.warn : C.textFaint, marginTop: 4 }}>
+                {(totals.unbalanced_entry_groups ?? 0) > 0 ? "⚠ Entries need review" : "None flagged ✓"}
+              </div>
+            </div>
           </div>
 
           {/* Charts */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-
-            {/* Activity Trend */}
+ 
+            {/* Transaction Trend Chart */}
             <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 16, padding: "20px 22px" }}>
-              <h2 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textHead }}>Activity Trend</h2>
-              <p style={{ margin: "0 0 16px", fontSize: 12, color: C.textMuted }}>Daily transaction volume over time</p>
-              {trend.length === 0
-                ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 260, fontSize: 13, color: C.textMuted }}>No data for selected range</div>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
+                <div>
+                  <h2 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textHead }}>Transaction Trend</h2>
+                  <p style={{ margin: 0, fontSize: 12, color: C.textMuted }}>Daily transaction counts over time</p>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[["all","All"],["3m","3M"],["6m","6M"],["12m","12M"]].map(([key, label]) => (
+                    <button key={key} onClick={() => setTxPreset(key)} style={{
+                      padding: "5px 10px", fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: "pointer",
+                      background: txPreset === key ? C.primary : "#F6F7FD",
+                      color:      txPreset === key ? "#fff"    : C.textMuted,
+                      border:     `1px solid ${txPreset === key ? C.primary : C.cardBorder}`,
+                    }}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                {[["total","Total Initiated","#6366F1"],["completed","Completed","#22C55E"],["under_investigation","Under Investigation","#EF4444"]].map(([key, label, color]) => (
+                  <button key={key} onClick={() => setTxMetric(key)} style={{
+                    padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 10, cursor: "pointer",
+                    background: txMetric === key ? color : "#F6F7FD",
+                    color:      txMetric === key ? "#fff" : C.textMuted,
+                    border:     `1px solid ${txMetric === key ? color : C.cardBorder}`,
+                  }}>{label}</button>
+                ))}
+              </div>
+              {txTrend.length === 0
+                ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 220, fontSize: 13, color: C.textMuted }}>No data for selected range</div>
                 : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={txTrend} margin={{ top: 4, right: 8, bottom: 0, left: -10 }}>
                       <defs>
-                        <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={C.primary} stopOpacity={0.25} />
-                          <stop offset="95%" stopColor={C.primary} stopOpacity={0} />
+                        <linearGradient id="txFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor={txMetric === "completed" ? "#22C55E" : txMetric === "under_investigation" ? "#EF4444" : C.primary} stopOpacity={0.25} />
+                          <stop offset="95%" stopColor={txMetric === "completed" ? "#22C55E" : txMetric === "under_investigation" ? "#EF4444" : C.primary} stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
-                      <XAxis dataKey="day"  tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
-                      <YAxis               tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
+                      <XAxis dataKey="day" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
                       <Tooltip content={<CustomTooltip />} />
-                      <Area type="monotone" dataKey="uploads" name="Transactions" stroke={C.primary} fill="url(#areaFill)" strokeWidth={2.5} dot={{ r: 4, fill: C.primary, strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                      <Area type="monotone" dataKey="value"
+                        name={txMetric === "completed" ? "Completed" : txMetric === "under_investigation" ? "Under Investigation" : "Total Initiated"}
+                        stroke={txMetric === "completed" ? "#22C55E" : txMetric === "under_investigation" ? "#EF4444" : C.primary}
+                        fill="url(#txFill)" strokeWidth={2.5}
+                        dot={{ r: 3, strokeWidth: 0 }} activeDot={{ r: 5 }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
             </div>
-
-            {/* Revenue / Expenses */}
+ 
+            {/* Account Class Breakdown */}
             <div style={{ background: C.cardBg, border: `1px solid ${C.cardBorder}`, borderRadius: 16, padding: "20px 22px" }}>
-              <h2 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textHead }}>Revenue / Expenses</h2>
-              <p style={{ margin: "0 0 16px", fontSize: 12, color: C.textMuted }}>Monthly comparison breakdown</p>
-              {revenue.length === 0
+              <h2 style={{ margin: "0 0 2px", fontSize: 14, fontWeight: 700, color: C.textHead }}>Account Class Breakdown</h2>
+              <p style={{ margin: "0 0 16px", fontSize: 12, color: C.textMuted }}>Debits vs credits by account class</p>
+              {classBreakdown.length === 0
                 ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 260, fontSize: 13, color: C.textMuted }}>No data for selected range</div>
                 : (
                   <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={revenue} margin={{ top: 4, right: 8, bottom: 0, left: -10 }} barGap={3}>
+                    <BarChart data={classBreakdown} margin={{ top: 4, right: 8, bottom: 0, left: -10 }} barGap={3}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} />
                       <YAxis               tick={{ fontSize: 10, fill: C.textMuted }} tickLine={false} axisLine={false} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                       <Tooltip content={<CustomTooltip currency />} />
                       <Legend verticalAlign="bottom" height={28} iconType="square" iconSize={10} formatter={(v) => <span style={{ fontSize: 11, color: C.textMuted }}>{v}</span>} />
-                      <Bar dataKey="revenue"  name="Revenue"  fill={C.chartBar1} radius={[4,4,0,0]} />
-                      <Bar dataKey="expenses" name="Expenses" fill={C.chartBar2} radius={[4,4,0,0]} />
+                      <Bar dataKey="debits"  name="Debits"  fill={C.chartBar1} radius={[4,4,0,0]} />
+                      <Bar dataKey="credits" name="Credits" fill={C.chartBar2} radius={[4,4,0,0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
             </div>
-
+ 
           </div>
         </>
       )}
-
+ 
     </div>
   );
 }
+ 

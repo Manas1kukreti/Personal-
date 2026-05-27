@@ -4319,7 +4319,7 @@ body {
 
 .lf-submissions-table-wrap,
 .lf-submissions-conversation {
-  background: #F7F8FE;
+  background: #FFFFFF;
   border: 1px solid #DADDF2;
   border-radius: 16px;
   overflow: hidden;
@@ -5368,4 +5368,72 @@ body {
   height: 32px !important;
   object-fit: contain;
   object-position: left center;
+}
+
+.approvals-page .approvals-stat,
+.approvals-page .approvals-queue-panel,
+.approvals-page .approvals-review-panel {
+  background: #ffffff;
+  border: 1px solid #DEE2F3;
+  backdrop-filter: none;
+}
+
+/* Submissions */
+.lf-submissions-page .lf-submissions-table-wrap,
+.lf-submissions-page .lf-submissions-conversation {
+  background: #ffffff;
+}
+
+/* Upload */
+.lf-upload-page .upload-signal-card,
+.lf-upload-page .upload-dropzone,
+.lf-upload-page .upload-table-wrap,
+.lf-upload-page .upload-file-row,
+.lf-upload-page .upload-action-row,
+.lf-upload-page .upload-submit-row,
+.lf-upload-page .upload-workflow-strip {
+  background: #ffffff;
+  backdrop-filter: none;
+}
+
+/* Approvals page - white cards */
+.approvals-page .approvals-stat,
+.approvals-page .approvals-queue-panel,
+.approvals-page .approvals-review-panel,
+.approvals-page .elevated-panel {
+  background: #ffffff !important;
+  border: 1px solid #DEE2F3 !important;
+  backdrop-filter: none !important;
+}
+
+/* Upload page - white cards */
+.lf-upload-page .upload-signal-card,
+.lf-upload-page .upload-dropzone,
+.lf-upload-page .upload-table-wrap,
+.lf-upload-page .upload-file-row,
+.lf-upload-page .upload-action-row,
+.lf-upload-page .upload-submit-row,
+.lf-upload-page .upload-workflow-strip,
+.lf-upload-page .elevated-panel {
+  background: #ffffff !important;
+  border: 1px solid #DEE2F3 !important;
+  backdrop-filter: none !important;
+}
+
+.lf-upload-page .upload-dropzone {
+  border-style: dashed !important;
+}
+
+
+/* Upload page - white cards */
+.lf-upload-page .lf-upload-stat-card,
+.lf-upload-page .lf-upload-dropzone,
+.lf-upload-page .lf-upload-table-card {
+  background: #ffffff !important;
+  border: 1px solid #DEE2F3 !important;
+  backdrop-filter: none !important;
+}
+
+.lf-upload-page .lf-upload-dropzone {
+  border-style: dashed !important;
 }

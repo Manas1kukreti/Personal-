@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
@@ -57,6 +57,22 @@ class AgentTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+
+class TransactionRowRead(BaseModel):
+    id: UUID
+    submission_id: UUID
+    date: date
+    entry_group: int
+    entry_line: int
+    sub_account: str
+    details: str
+    account_code: str
+    debit_amount: float | None = None
+    credit_amount: float | None = None
+    account_class: str
+    sub_class: str
+    country: str
+    region: str
 
 class UploadVersionRead(BaseModel):
     id: UUID

@@ -36,29 +36,6 @@ class ReviewAction(str, enum.Enum):
     reupload_requested = "reupload_requested"
 
 
-class TransactionType(str, enum.Enum):
-    Payment = "Payment"
-    Debit = "Debit"
-    Credit = "Credit"
-    Transfer = "Transfer"
-    Refund = "Refund"
-
-
-class PaymentMethod(str, enum.Enum):
-    NEFT = "NEFT"
-    UPI = "UPI"
-    CreditCard = "Credit Card"
-    DebitCard = "Debit Card"
-    NetBanking = "Net Banking"
-
-
-class TransactionStatus(str, enum.Enum):
-    Initiated = "Initiated"
-    Pending = "Pending"
-    Successful = "Successful"
-    Failed = "Failed"
-
-
 class User(Base):
     __tablename__ = "users"
 
@@ -149,27 +126,33 @@ class TransactionRow(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     submission_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("submissions.id", ondelete="CASCADE"), nullable=False)
-    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    account_number: Mapped[str] = mapped_column(String(80), nullable=False)
-    transaction_id: Mapped[str] = mapped_column(String(120), nullable=False)
-    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
-    amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
-    transaction_type: Mapped[TransactionType] = mapped_column(
-        Enum(TransactionType, name="transaction_type", values_callable=enum_values),
-        nullable=False,
-    )
-    merchant_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    invoice_id: Mapped[str] = mapped_column(String(120), nullable=False)
-    payment_method: Mapped[PaymentMethod] = mapped_column(
-        Enum(PaymentMethod, name="payment_method", values_callable=enum_values),
-        nullable=False,
-    )
-    status: Mapped[TransactionStatus] = mapped_column(
-        Enum(TransactionStatus, name="transaction_status", values_callable=enum_values),
-        nullable=False,
-    )
 
-    submission: Mapped[Submission] = relationship(back_populates="transaction_rows")
+    # Date
+    date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    # Entry split — entry_group ties the two legs together, entry_line distinguishes them
+    entry_group: Mapped[int] = mapped_column(Integer, nullable=False)
+    entry_line: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Account info
+    sub_account: Mapped[str] = mapped_column(String(255), nullable=False)
+    details: Mapped[str] = mapped_column(String(255), nullable=False)
+    account_code: Mapped[str] = mapped_column(String(80), nullable=False)
+
+    # Amounts — one side will be null on each leg (standard double-entry)
+    debit_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    credit_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+
+    # Classification — 'class' is a Python reserved word so stored as account_class
+    account_class: Mapped[str] = mapped_column(String(120), nullable=False)
+    sub_class: Mapped[str] = mapped_column(String(120), nullable=False)
+
+    # Geography
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
+    region: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    submission: Mapped["Submission"] = relationship(back_populates="transaction_rows")
+
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
@@ -178,7 +161,7 @@ class RefreshToken(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    revoked: Mapped[bool] = mapped_column(default=False, nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="refresh_tokens")

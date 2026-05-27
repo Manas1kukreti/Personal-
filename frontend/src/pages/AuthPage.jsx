@@ -4,12 +4,6 @@ import { FiBarChart2, FiLock, FiMail, FiShield, FiUser, FiUserPlus } from "react
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext.jsx";
 
-const activityItems = [
-  { label: "Upload approved from Finance team", status: "Approved" },
-  { label: "Manager queue refreshed", status: "Live" },
-  { label: "Audit snapshot recorded", status: "Tracked" },
-];
-
 export default function AuthPage() {
   const [mode, setMode] = useState("login");
   const [name, setName] = useState("");
@@ -74,22 +68,7 @@ export default function AuthPage() {
           </p>
         </div>
 
-        <div className="auth-page-hero__activity">
-          <div className="auth-page-hero__activity-label">
-            <span className="auth-page-hero__activity-dot" />
-            <span>Live Activity</span>
-          </div>
-          <div className="auth-page-hero__activity-list">
-            {activityItems.map((item) => (
-              <div key={item.label} className="auth-page-hero__activity-item auth-depth-ticker">
-                <span>{item.label}</span>
-                <span className="status-badge status-approved">{item.status}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="auth-page-hero__footer">PostgreSQL-backed workflow workspace</div>
+      <div className="auth-page-hero__footer">PostgreSQL-backed workflow workspace</div>
       </section>
 
       <section className="auth-page-form-wrap">

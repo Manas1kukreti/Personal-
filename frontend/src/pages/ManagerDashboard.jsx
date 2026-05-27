@@ -10,6 +10,7 @@ import ProgressMilestones from "../components/ProgressMilestones.jsx";
 import { useWebSocket } from "../hooks/useWebSocket.js";
 
 const DATE_PRESETS = [
+  { key: "all", label: "All Time" },
   { key: "one_month", label: "1 Month" },
   { key: "three_months", label: "3 Months" },
   { key: "six_months", label: "6 Months" },
@@ -32,8 +33,8 @@ export default function ManagerDashboard() {
   const [queueError, setQueueError] = useState("");
   const [queueSearch, setQueueSearch] = useState("");
   const [queueStatus, setQueueStatus] = useState("");
-  const [datePreset, setDatePreset] = useState("six_months");
-  const [dateFilters, setDateFilters] = useState(() => datesForPreset("six_months"));
+  const [datePreset, setDatePreset] = useState("all");
+  const [dateFilters, setDateFilters] = useState({ dateFrom: "", dateTo: "" });
 
   const loadQueue = useCallback(async () => {
     setQueueLoading(true);
