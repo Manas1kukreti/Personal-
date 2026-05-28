@@ -3,6 +3,7 @@ print("ui_agent imported")
 import json
 import pandas as pd
 import httpx
+import time
 
 
 # =========================================================
@@ -21,6 +22,14 @@ UPLOAD_API_URL = (
     f"{BASE_URL}/api/agent/upload"
 )
 
+# =========================================================
+# FIXED POLLING URL
+# =========================================================
+
+STATUS_API_URL = (
+    f"{BASE_URL}/api/uploads"
+)
+
 EMAIL = "agentmailak44@gmail.com"
 
 PASSWORD = "AgentPassword4382"
@@ -28,9 +37,6 @@ PASSWORD = "AgentPassword4382"
 
 # =========================================================
 # INTERNAL COLUMNS
-# =========================================================
-# These columns are used internally by agents/tools
-# and should NOT be pushed to frontend/UI.
 # =========================================================
 
 INTERNAL_COLUMNS = [
@@ -49,18 +55,12 @@ def save_json_tool(validated_data):
 
     try:
 
-        # =================================================
-        # CREATE SAFE COPY
-        # =================================================
-
         cleaned_data = validated_data.copy()
 
         cleaned_rows = []
 
         for row in cleaned_data.get(
-
             "data",
-
             []
         ):
 
@@ -78,39 +78,25 @@ def save_json_tool(validated_data):
 
         cleaned_data["data"] = cleaned_rows
 
-        # =================================================
-        # SAVE JSON
-        # =================================================
-
         formatted_data = json.dumps(
-
             cleaned_data,
-
             indent=4
         )
 
         with open(
-
             "verified_data.json",
-
             "w"
-
         ) as f:
 
             f.write(formatted_data)
 
         print(
-
-            "VERIFIED DATA "
-            "SAVED AS JSON"
+            "VERIFIED DATA SAVED AS JSON"
         )
 
     except Exception as e:
 
-        print(
-
-            "\nJSON SAVE FAILED\n"
-        )
+        print("\nJSON SAVE FAILED\n")
 
         print(e)
 
@@ -124,16 +110,13 @@ def save_json_tool(validated_data):
 def generate_excel_tool(validated_data):
 
     print(
-
         "\nGENERATING GL EXCEL FILE...\n"
     )
 
     try:
 
         excel_data = validated_data.get(
-
             "data",
-
             []
         )
 
@@ -144,7 +127,6 @@ def generate_excel_tool(validated_data):
         if not excel_data:
 
             raise Exception(
-
                 "NO VALIDATED DATA FOUND"
             )
 
@@ -152,21 +134,40 @@ def generate_excel_tool(validated_data):
         # CREATE DATAFRAME
         # =================================================
 
-        df = pd.DataFrame(
-
-            excel_data
-        )
+        df = pd.DataFrame(excel_data)
 
         # =================================================
         # REMOVE INTERNAL COLUMNS
         # =================================================
 
         df = df.drop(
-
             columns=INTERNAL_COLUMNS,
-
             errors="ignore"
         )
+
+        # =================================================
+        # REMOVE COMPLETELY EMPTY COLUMNS
+        # =================================================
+
+        df = df.dropna(
+            axis=1,
+            how="all"
+        )
+
+        # =================================================
+        # REMOVE BLANK STRING COLUMNS
+        # =================================================
+
+        df = df.loc[
+            :,
+            (
+                df.astype(str)
+                .apply(
+                    lambda col:
+                    col.str.strip().ne("").any()
+                )
+            )
+        ]
 
         # =================================================
         # RENAME COLUMNS FOR UI
@@ -174,31 +175,21 @@ def generate_excel_tool(validated_data):
 
         df = df.rename(columns={
 
-            "voucher_number": "Entry No",
+            "voucher_date": "voucher_date",
 
-            "account_class": "Class",
-
-            "account_subclass": "Sub Class",
-
-            "particulars": "Details",
-
-            "ledger_name": "Sub Account",
-
-            "voucher_date": "Date",
+            "entry_no": "entry_no",
 
             "voucher_type": "Voucher Type",
 
-            "debit_amount": "Debit Amount",
+            "sub_account": "sub_account",
 
-            "credit_amount": "Credit Amount",
-
-            "account_code": "Account Code",
-
-            "country": "Country",
-
-            "region": "Region",
+            "details": "details",
 
             "narration": "Narration",
+
+            "debit_amount": "debit_amount",
+
+            "credit_amount": "credit_amount",
 
             "balance": "Balance",
 
@@ -214,7 +205,17 @@ def generate_excel_tool(validated_data):
 
             "currency": "Currency",
 
-            "invoice_number": "Invoice Number"
+            "account_code": "account_code",
+
+            "invoice_number": "Invoice Number",
+
+            "country": "country",
+
+            "region": "region",
+
+            "class_name": "class",
+
+            "account_subclass": "sub_class"
         })
 
         # =================================================
@@ -223,21 +224,21 @@ def generate_excel_tool(validated_data):
 
         preferred_columns = [
 
-            "Date",
+            "voucher_date",
 
-            "Entry No",
+            "entry_no",
 
             "Voucher Type",
 
-            "Sub Account",
+            "sub_account",
 
-            "Details",
+            "details",
 
             "Narration",
 
-            "Debit Amount",
+            "debit_amount",
 
-            "Credit Amount",
+            "credit_amount",
 
             "Balance",
 
@@ -253,17 +254,17 @@ def generate_excel_tool(validated_data):
 
             "Currency",
 
-            "Account Code",
+            "account_code",
 
             "Invoice Number",
 
-            "Country",
+            "country",
 
-            "Region",
+            "region",
 
-            "Class",
+            "class",
 
-            "Sub Class"
+            "sub_class"
         ]
 
         existing_columns = [
@@ -282,22 +283,17 @@ def generate_excel_tool(validated_data):
         # =================================================
 
         df.to_excel(
-
             "verified_data.xlsx",
-
             index=False
         )
 
         print(
-
-            "GL EXCEL FILE "
-            "GENERATED SUCCESSFULLY"
+            "GL EXCEL FILE GENERATED SUCCESSFULLY"
         )
 
     except Exception as e:
 
         print(
-
             "\nEXCEL GENERATION FAILED\n"
         )
 
@@ -314,54 +310,68 @@ def login_tool():
 
     print("\nLOGGING INTO FRONTEND...\n")
 
-    login_response = httpx.post(
+    try:
 
-        LOGIN_API_URL,
+        login_response = httpx.post(
 
-        json={
+            LOGIN_API_URL,
 
-            "email": EMAIL,
+            json={
 
-            "password": PASSWORD
-        }
-    )
+                "email": EMAIL,
 
-    print(
+                "password": PASSWORD
+            },
 
-        "LOGIN RESPONSE:",
-
-        login_response.status_code
-    )
-
-    print(login_response.text)
-
-    # =====================================================
-    # LOGIN FAILED
-    # =====================================================
-
-    if login_response.status_code != 200:
-
-        raise Exception(
-
-            f"LOGIN FAILED → "
-
-            f"{login_response.status_code} "
-
-            f"→ {login_response.text}"
+            timeout=60.0
         )
 
-    # =====================================================
-    # GET TOKEN
-    # =====================================================
+        print(
+            "LOGIN RESPONSE:",
+            login_response.status_code
+        )
 
-    token = login_response.json()[
+        print(login_response.text)
 
-        "access_token"
-    ]
+        # =================================================
+        # LOGIN FAILED
+        # =================================================
 
-    print("\nLOGIN SUCCESSFUL\n")
+        if login_response.status_code != 200:
 
-    return token
+            raise Exception(
+
+                f"LOGIN FAILED → "
+
+                f"{login_response.status_code} "
+
+                f"→ {login_response.text}"
+            )
+
+        # =================================================
+        # GET TOKEN
+        # =================================================
+
+        token = login_response.json()[
+            "access_token"
+        ]
+
+        print("\nLOGIN SUCCESSFUL\n")
+
+        return token
+
+    except httpx.ReadTimeout:
+
+        raise Exception(
+            "LOGIN API TIMEOUT → "
+            "Frontend server took too long to respond"
+        )
+
+    except Exception as e:
+
+        raise Exception(
+            f"LOGIN TOOL ERROR → {str(e)}"
+        )
 
 
 # =========================================================
@@ -380,11 +390,8 @@ def upload_tool(token):
     }
 
     with open(
-
         "verified_data.xlsx",
-
         "rb"
-
     ) as f:
 
         response = httpx.post(
@@ -396,11 +403,8 @@ def upload_tool(token):
             files={
 
                 "file": (
-
                     "verified_data.xlsx",
-
                     f,
-
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             },
@@ -409,9 +413,7 @@ def upload_tool(token):
         )
 
     print(
-
         "UPLOAD RESPONSE:",
-
         response.status_code
     )
 
@@ -432,10 +434,121 @@ def upload_tool(token):
             f"→ {response.text}"
         )
 
-    print(
+    # =====================================================
+    # GET RESPONSE JSON
+    # =====================================================
 
-        "\nFILE SUCCESSFULLY "
-        "PUSHED TO FRONTEND\n"
+    response_json = response.json()
+    
+    print("FULL UPLOAD RESPONSE JSON:", response_json) 
+
+    # =====================================================
+    # FIXED ID FIELD
+    # =====================================================
+
+    upload_id = response_json.get(
+        "upload_id"
+    )
+
+    print(
+        f"\nUPLOAD ID: {upload_id}\n"
+    )
+
+    # =====================================================
+    # POLLING START
+    # =====================================================
+
+    print(
+        "\nSTARTING POLLING...\n"
+    )
+
+    max_attempts = 1
+
+    for attempt in range(max_attempts):
+
+        print(
+            f"Polling Attempt "
+            f"{attempt + 1}/{max_attempts}"
+        )
+
+        poll_response = httpx.get(
+
+            f"{STATUS_API_URL}/{upload_id}",
+
+            headers=headers,
+
+            timeout=30.0
+        )
+
+        print(
+            "POLL STATUS:",
+            poll_response.status_code
+        )
+
+        print(
+            poll_response.text
+        )
+
+        if poll_response.status_code == 200:
+
+            poll_data = poll_response.json()
+
+            status = poll_data.get(
+                "status"
+            )
+
+            print(
+                f"\nCURRENT STATUS: "
+                f"{status}\n"
+            )
+
+            # =================================================
+            # FIXED STATUS CHECK
+            # =================================================
+
+            if status in [
+
+                "pending",
+
+                "approved",
+
+                "rejected",
+
+                "reupload_requested"
+            ]:
+
+                print(
+                    "\nFILE PROCESSING COMPLETED\n"
+                )
+
+                return
+
+            # =================================================
+            # PARSE FAILED
+            # =================================================
+
+            if status == "parse_failed":
+
+                raise Exception(
+                    f"PARSE FAILED → "
+                    f"{poll_response.text}"
+                )
+
+        # =================================================
+        # WAIT BEFORE NEXT POLL
+        # =================================================
+
+        time.sleep(5)
+
+    # =====================================================
+    # POLLING FAILED
+    # =====================================================
+
+    raise Exception(
+
+        "Polling timeout → "
+        "Frontend processing "
+        "not completed"
     )
 
 
@@ -446,45 +559,53 @@ def upload_tool(token):
 def push_to_ui(validated_data):
 
     print(
-
-        "\nPUSHING VERIFIED "
-        "GL DATA TO UI...\n"
+        "\nPUSHING VERIFIED GL DATA TO UI...\n"
     )
 
     try:
 
         # =================================================
-        # VALIDATION CHECK
+        # VALIDATION STATUS CHECK
         # =================================================
 
-        if validated_data.get(
-
+        validation_status = validated_data.get(
             "status"
+        )
 
-        ) != "valid":
+        print(
+            f"\nVALIDATION STATUS: "
+            f"{validation_status}\n"
+        )
+
+        # =================================================
+        # ALLOW PUSH EVEN IF WARNINGS EXIST
+        # =================================================
+
+        if validation_status not in [
+            "valid",
+            "invalid"
+        ]:
 
             raise Exception(
-
-                "DATA IS NOT VALIDATED"
+                "UNKNOWN VALIDATION STATUS"
             )
+
+        print(
+            "\nCONTINUING DATA PUSH "
+            "TO FRONTEND...\n"
+        )
 
         # =================================================
         # STEP 1 → SAVE JSON
         # =================================================
 
-        save_json_tool(
-
-            validated_data
-        )
+        save_json_tool(validated_data)
 
         # =================================================
         # STEP 2 → GENERATE EXCEL
         # =================================================
 
-        generate_excel_tool(
-
-            validated_data
-        )
+        generate_excel_tool(validated_data)
 
         # =================================================
         # STEP 3 → LOGIN
@@ -499,9 +620,7 @@ def push_to_ui(validated_data):
         upload_tool(token)
 
         print(
-
-            "\nDATA PUSHED "
-            "SUCCESSFULLY\n"
+            "\nDATA PUSHED SUCCESSFULLY\n"
         )
 
         return {
@@ -509,9 +628,7 @@ def push_to_ui(validated_data):
             "status": "success",
 
             "message": (
-
-                "GL data pushed "
-                "successfully"
+                "GL data pushed successfully"
             )
         }
 

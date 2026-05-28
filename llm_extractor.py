@@ -145,48 +145,74 @@ voucher_date:
 - voucher_date
 - date
 
-voucher_number:
+entry_no:
 - voucher_number
 - entryno
 
-voucher_type:
-- class
-- subclass
-
-ledger_name:
+sub_account:
 - subaccount
-- account
-- ledger
 
-particulars:
-- details
-
-narration:
-- narration
+details:
+- particulars
 - details
 
 account_code:
 - account_key
 
+class:
+- account_class
+
+sub_class:
+- account_subclass
+
+country:
+- country
+
+region:
+- region
+
+debit_amount:
+- debit_amount
+
+credit_amount:
+- credit_amount
+
+
 =====================================================
 OUTPUT FIELD RULES
 =====================================================
 
-1. Return ONLY fields that actually exist
-in the source data.
+1. Return ALL original business fields present
+in source data.
 
-2. DO NOT create fake fields.
+2. ALWAYS include these fields if present:
 
-3. DO NOT return unnecessary blank fields.
+- voucher_number
+- voucher_date
+- particulars
+- account
+- subaccount
+- account_class
+- account_subclass
+- debit_amount
+- credit_amount
+- country
+- region
+- account_key
 
-4. If a field is missing completely,
-omit that field entirely.
+3. DO NOT create fake values.
+
+4. DO NOT omit account hierarchy fields.
 
 5. Preserve all financial values exactly.
 
 6. Preserve debit_amount and credit_amount exactly.
 
-7. Preserve account hierarchy exactly.
+7. Preserve account_class exactly.
+
+8. Preserve account_subclass exactly.
+
+9. Preserve account hierarchy exactly.
 
 =====================================================
 RETURN FORMAT
@@ -198,16 +224,17 @@ Example:
 
 [
   {{
+    "entry_no": "1.1",
     "voucher_date": "2025-01-01",
-    "voucher_number": "1.1",
-    "ledger_name": "Cash at Bank",
-    "particulars": "Cash Sales",
-    "debit_amount": "5000",
+    "sub_account": "Cash at Bank",
+    "details": "Cash Sales",
     "account_code": "10",
+    "class": "Assets",
+    "sub_class": "Current Assets",
     "country": "India",
     "region": "Asia",
-    "account_class": "Assets",
-    "account_subclass": "Current Assets"
+    "debit_amount": "5000",
+    "credit_amount": ""
   }}
 ]
 

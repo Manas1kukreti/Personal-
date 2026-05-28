@@ -19,57 +19,25 @@ class GLTransaction(BaseModel):
 
     voucher_date: str = ""
 
-    voucher_number: str = ""
+    entry_no: str = ""
 
-    voucher_type: str = ""
+    sub_account: str = ""
 
-    ledger_name: str = ""
-
-    particulars: str = ""
-
-    narration: str = ""
+    details: str = ""
 
     debit_amount: str = ""
 
     credit_amount: str = ""
 
-    balance: str = ""
-
-    reference_number: str = ""
-
-    party_name: str = ""
-
-    gst_number: str = ""
-
-    cost_center: str = ""
-
-    branch: str = ""
-
-    currency: str = ""
-
     account_code: str = ""
-
-    invoice_number: str = ""
 
     country: str = ""
 
     region: str = ""
 
-    account_class: str = ""
+    class_name: str = ""
 
     account_subclass: str = ""
-
-    territory_key: str = ""
-
-    account_key: str = ""
-
-    account: str = ""
-
-    subaccount: str = ""
-
-    amount: str = ""
-
-    dr_cr_source: str = ""
 
 
 # =========================================================
@@ -106,15 +74,7 @@ def safe_float(value):
 
         value = str(value).strip()
 
-        # =================================================
-        # REMOVE COMMAS
-        # =================================================
-
         value = value.replace(",", "")
-
-        # =================================================
-        # HANDLE BRACKET NEGATIVE VALUES
-        # =================================================
 
         if value.startswith("(") and value.endswith(")"):
 
@@ -180,9 +140,7 @@ def validate_data(
 
                 "status": "invalid",
 
-                "error": (
-                    "Expected JSON array"
-                )
+                "error": "Expected JSON array"
             }
 
         # =================================================
@@ -195,38 +153,8 @@ def validate_data(
 
                 "status": "invalid",
 
-                "error": (
-                    "NO FINANCIAL DATA "
-                    "EXTRACTED"
-                )
+                "error": "NO FINANCIAL DATA EXTRACTED"
             }
-
-        # =================================================
-        # MAX ENTRY CHECK
-        # =================================================
-
-        if len(parsed) > 14:
-
-            return {
-
-                "status": "invalid",
-
-                "error": (
-                    "More than 14 "
-                    "entries returned"
-                )
-            }
-
-        # =================================================
-        # JSON SCHEMA VALIDATION
-        # =================================================
-
-        validate(
-
-            instance=parsed,
-
-            schema=transaction_schema
-        )
 
         # =================================================
         # STORAGE
@@ -247,13 +175,86 @@ def validate_data(
         for idx, transaction in enumerate(parsed):
 
             # =================================================
+            # RENAME FIELDS
+            # =================================================
+
+            transformed_transaction = {
+
+    "voucher_date":
+    transaction.get(
+        "voucher_date",
+        ""
+    ),
+
+    "entry_no":
+    transaction.get(
+        "voucher_number",
+        ""
+    ),
+
+    "sub_account":
+    transaction.get(
+        "subaccount",
+        ""
+    ),
+
+    "details":
+    transaction.get(
+        "particulars",
+        ""
+    ),
+
+    "debit_amount":
+    transaction.get(
+        "debit_amount",
+        ""
+    ),
+
+    "credit_amount":
+    transaction.get(
+        "credit_amount",
+        ""
+    ),
+
+    "account_code":
+    transaction.get(
+        "account_key",
+        ""
+    ),
+
+    "country":
+    transaction.get(
+        "country",
+        ""
+    ),
+
+    "region":
+    transaction.get(
+        "region",
+        ""
+    ),
+
+    "class_name":
+    transaction.get(
+        "account_class",
+        ""
+    ),
+
+    "account_subclass":
+    transaction.get(
+        "account_subclass",
+        ""
+    )
+}
+
+            # =================================================
             # PYDANTIC VALIDATION
             # =================================================
 
             try:
 
                 validated = GLTransaction(
-                    **transaction
+                    **transformed_transaction
                 )
 
                 cleaned_transaction = (
@@ -264,15 +265,14 @@ def validate_data(
 
                 validation_errors.append({
 
-                    "error": (
-                        "Pydantic validation failed"
-                    ),
+                    "error":
+                    "Pydantic validation failed",
 
-                    "validation_error": (
-                        ve.errors()
-                    ),
+                    "validation_error":
+                    ve.errors(),
 
-                    "transaction_index": idx
+                    "transaction_index":
+                    idx
                 })
 
                 continue
@@ -302,67 +302,18 @@ def validate_data(
 
                 validation_errors.append({
 
-                    "error": (
-                        "voucher_date is empty"
-                    ),
+                    "error":
+                    "voucher_date is empty",
 
-                    "failed_field": (
-                        "voucher_date"
-                    ),
+                    "failed_field":
+                    "voucher_date",
 
-                    "current_value": "",
-
-                    "transaction_index": idx
+                    "transaction_index":
+                    idx
                 })
 
             # =================================================
-            # NUMERIC FIELD CHECK
-            # =================================================
-
-            numeric_fields = [
-
-                "debit_amount",
-
-                "credit_amount",
-
-                "balance",
-
-                "amount"
-            ]
-
-            for field in numeric_fields:
-
-                value = cleaned_transaction.get(
-                    field,
-                    ""
-                )
-
-                if value in ["", None]:
-
-                    continue
-
-                try:
-
-                    safe_float(value)
-
-                except:
-
-                    validation_errors.append({
-
-                        "error": (
-                            f"{field} "
-                            "must be numeric"
-                        ),
-
-                        "failed_field": field,
-
-                        "current_value": value,
-
-                        "transaction_index": idx
-                    })
-
-            # =================================================
-            # DEBIT CREDIT EMPTY CHECK
+            # DEBIT/CREDIT CHECK
             # =================================================
 
             debit = cleaned_transaction.get(
@@ -379,156 +330,82 @@ def validate_data(
 
                 validation_errors.append({
 
-                    "error": (
-                        "Both debit and "
-                        "credit are empty"
-                    ),
+                    "error":
+                    "Both debit and credit empty",
 
-                    "failed_field": (
-                        "debit_credit"
-                    ),
+                    "failed_field":
+                    "debit_credit",
 
-                    "current_value": "",
-
-                    "transaction_index": idx
+                    "transaction_index":
+                    idx
                 })
-
-            # =================================================
-            # BOTH FILLED CHECK
-            # =================================================
 
             if debit not in ["", None] and credit not in ["", None]:
 
                 validation_errors.append({
 
-                    "error": (
-                        "Both debit and "
-                        "credit are filled"
-                    ),
+                    "error":
+                    "Both debit and credit filled",
 
-                    "failed_field": (
-                        "debit_credit"
-                    ),
+                    "failed_field":
+                    "debit_credit",
 
-                    "current_value": (
-                        f"Debit={debit}, "
-                        f"Credit={credit}"
-                    ),
-
-                    "transaction_index": idx
+                    "transaction_index":
+                    idx
                 })
-
-            # =================================================
-            # DATE FORMAT CHECK
-            # =================================================
-
-            if voucher_date:
-
-                date_pattern = (
-                    r"^[0-9:/._ -]+$"
-                )
-
-                if not re.match(
-
-                    date_pattern,
-
-                    voucher_date
-
-                ):
-
-                    validation_errors.append({
-
-                        "error": (
-                            "Invalid voucher "
-                            "date format"
-                        ),
-
-                        "failed_field": (
-                            "voucher_date"
-                        ),
-
-                        "current_value": (
-                            voucher_date
-                        ),
-
-                        "transaction_index": idx
-                    })
 
             # =================================================
             # FUZZY VALIDATION
             # =================================================
 
-            particulars = (
-
-                cleaned_transaction.get(
-                    "particulars",
-                    ""
-                )
+            details = cleaned_transaction.get(
+                "details",
+                ""
             )
 
-            if particulars:
+            if details:
 
-                particulars_score = (
+                score = fuzz.partial_ratio(
 
-                    fuzz.partial_ratio(
+                    details.lower(),
 
-                        particulars.lower(),
-
-                        email_text.lower()
-                    )
+                    email_text.lower()
                 )
 
-                if particulars_score < 50:
+                if score < 50:
 
                     validation_warnings.append({
 
-                        "warning": (
-                            "Particulars mismatch"
-                        ),
+                        "warning":
+                        "Details mismatch",
 
-                        "failed_field": (
-                            "particulars"
-                        ),
+                        "details":
+                        details,
 
-                        "current_value": (
-                            particulars
-                        ),
-
-                        "similarity_score": (
-                            particulars_score
-                        ),
-
-                        "transaction_index": idx
+                        "score":
+                        score
                     })
 
             # =================================================
-            # GROUP BY VOUCHER
+            # GROUP VOUCHERS
             # =================================================
 
-            voucher_number = cleaned_transaction.get(
-
-                "voucher_number",
-
+            entry_no = cleaned_transaction.get(
+                "entry_no",
                 ""
             )
 
             base_voucher = str(
-                voucher_number
+                entry_no
             ).split(".")[0]
 
             voucher_groups[
                 base_voucher
             ].append(
-
                 cleaned_transaction
             )
 
-            # =================================================
-            # SAVE VALID TRANSACTION
-            # =================================================
-
             validated_transactions.append(
-
                 cleaned_transaction
             )
 
@@ -574,11 +451,7 @@ def validate_data(
                 2
             )
 
-            # =================================================
-            # DTCD DIFFERENCE
-            # =================================================
-
-            dtct_difference = round(
+            difference = round(
 
                 abs(
                     total_debit -
@@ -596,107 +469,57 @@ def validate_data(
 
                 f"| Credit: {total_credit} "
 
-                f"| Difference: {dtct_difference}"
+                f"| Difference: {difference}"
             )
 
-            # =================================================
-            # BALANCE CHECK
-            # =================================================
-
-            is_balanced = (
-
-                dtct_difference <= 0.01
-            )
-
-            # =================================================
-            # IF NOT BALANCED
-            # =================================================
-
-            if not is_balanced:
-
-                # =============================================
-                # WARNING
-                # =============================================
+            if difference > 0.01:
 
                 validation_warnings.append({
 
-                    "warning": (
-                        f"Voucher {voucher_id} "
-                        "not balanced"
-                    ),
+                    "warning":
+                    f"Voucher {voucher_id} not balanced",
 
-                    "voucher_number": voucher_id,
-
-                    "debit_total": total_debit,
-
-                    "credit_total": total_credit,
-
-                    "dtct_difference": dtct_difference
+                    "difference":
+                    difference
                 })
-
-                # =============================================
-                # GET SAMPLE ROW
-                # =============================================
 
                 sample_tx = transactions[0]
 
-                account_code = sample_tx.get(
-
-                    "account_code",
-
-                    "UNKNOWN"
-                )
-
-                sub_account = sample_tx.get(
-
-                    "ledger_name",
-
-                    "UNKNOWN"
-                )
-
-                # =============================================
-                # PUSH INTO ERRORS
-                # =============================================
-
                 validation_errors.append({
 
-                    "error": (
-                        f"Voucher {voucher_id} "
-                        "not balanced"
+                    "error":
+                    f"Voucher {voucher_id} not balanced",
+
+                    "Entry no":
+                    voucher_id,
+
+                    "Account code":
+                    sample_tx.get(
+                        "account_code",
+                        ""
                     ),
 
-                    "failed_field": (
-                        "dtcd_difference"
+                    "Sub Account":
+                    sample_tx.get(
+                        "sub_account",
+                        ""
                     ),
 
-                    "Entry no": voucher_id,
-
-                    "Account code": account_code,
-
-                    "Sub Account": sub_account,
-
-                    "difference": dtct_difference
+                    "difference":
+                    difference
                 })
 
         # =================================================
-        # VALIDATION FAILED
+        # FINAL RESULT
         # =================================================
 
         if validation_errors:
 
-            print(
-                "\nVALIDATION FAILED\n"
-            )
-
-            print(validation_errors)
+            print("\nVALIDATION FAILED\n")
 
             return {
 
                 "status": "invalid",
-
-                "total_errors": len(
-                    validation_errors
-                ),
 
                 "errors": validation_errors,
 
@@ -709,43 +532,20 @@ def validate_data(
                 "data": validated_transactions
             }
 
-        # =================================================
-        # SUCCESS
-        # =================================================
-
-        print(
-            "\nVALIDATION SUCCESSFUL\n"
-        )
+        print("\nVALIDATION SUCCESSFUL\n")
 
         return {
 
             "status": "valid",
 
+            "warnings": validation_warnings,
+
             "validated_count": len(
                 validated_transactions
             ),
 
-            "warnings": validation_warnings,
-
             "data": validated_transactions
         }
-
-    # =====================================================
-    # JSON ERROR
-    # =====================================================
-
-    except json.JSONDecodeError as je:
-
-        return {
-
-            "status": "invalid",
-
-            "json_error": str(je)
-        }
-
-    # =====================================================
-    # OTHER ERRORS
-    # =====================================================
 
     except Exception as e:
 

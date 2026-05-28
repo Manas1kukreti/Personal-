@@ -1,6 +1,7 @@
 print("GRAPH FILE STARTED")
 
 import json
+import time
 
 from typing import TypedDict
 
@@ -22,15 +23,16 @@ from validator import validate_data
 
 print("validator imported")
 
-from ui_agent import push_to_ui
+from ui_agent import (
+    push_to_ui,
+    login_tool
+)
 
 print("ui_agent imported")
 
 from re_extractor import re_extract_field
 
 print("re_extractor imported")
-
-from ui_agent import login_tool
 
 from pushing_validation_alert_tool import (
     push_validation_alert_tool
@@ -176,10 +178,34 @@ def validate_node(state):
     )
 
     # =====================================================
-    # RETRY COUNTER
+    # CHECK NORMAL ERRORS ONLY
     # =====================================================
 
-    if result["status"] == "invalid":
+    errors = result.get(
+        "errors",
+        []
+    )
+
+    normal_errors = []
+
+    for err in errors:
+
+        error_text = str(
+            err.get("error", "")
+        ).lower()
+
+        if (
+            "not balanced" not in error_text
+            and "difference" not in error_text
+        ):
+
+            normal_errors.append(err)
+
+    # =====================================================
+    # RETRY ONLY FOR NORMAL ERRORS
+    # =====================================================
+
+    if normal_errors:
 
         retry_count += 1
 
@@ -221,6 +247,10 @@ def re_extract_node(state):
         []
     )
 
+    # =====================================================
+    # JSON LOAD
+    # =====================================================
+
     try:
 
         parsed_data = json.loads(
@@ -233,23 +263,61 @@ def re_extract_node(state):
 
         print(e)
 
-        return {}
+        retry_count = state.get(
+            "retry_count",
+            0
+        ) + 1
+
+        return {
+
+            "processing_status":
+            "re_extract_failed",
+
+            "retry_count":
+            retry_count
+        }
+
+    # =====================================================
+    # INVALID DATA TYPE
+    # =====================================================
 
     if not isinstance(parsed_data, list):
 
         print("\nINVALID PARSED DATA\n")
 
-        return {}
+        retry_count = state.get(
+            "retry_count",
+            0
+        ) + 1
+
+        return {
+
+            "processing_status":
+            "re_extract_failed",
+
+            "retry_count":
+            retry_count
+        }
+
+    # =====================================================
+    # LOOP THROUGH ERRORS
+    # =====================================================
 
     for error in errors:
 
-        # =====================================================
-        # SKIP DTCD DIFFERENCE ERRORS
-        # =====================================================
+        error_text = str(
+            error.get("error", "")
+        ).lower()
 
-        if error.get(
-            "failed_field"
-        ) == "dtcd_difference":
+        # =================================================
+        # SKIP DTCD ERRORS
+        # =================================================
+
+        if (
+            "not balanced" in error_text
+            or
+            "difference" in error_text
+        ):
 
             print(
                 "\nSKIPPING DTCD "
@@ -315,15 +383,9 @@ def re_extract_node(state):
             transaction_index
         ][failed_field] = corrected_value
 
-        print(
-            "\nUPDATED TRANSACTION:\n"
-        )
-
-        print(
-            parsed_data[
-                transaction_index
-            ]
-        )
+    # =====================================================
+    # UPDATED JSON
+    # =====================================================
 
     updated_json = json.dumps(
         parsed_data,
@@ -332,9 +394,11 @@ def re_extract_node(state):
 
     return {
 
-        "extracted_data": updated_json,
+        "extracted_data":
+        updated_json,
 
-        "processing_status": "re_extracted"
+        "processing_status":
+        "re_extracted"
     }
 
 
@@ -365,11 +429,51 @@ def push_to_ui_node(state):
 
     print(result)
 
+    validation_result = state[
+        "validation_result"
+    ]
+
+    errors = validation_result.get(
+        "errors",
+        []
+    )
+
+    # =====================================================
+    # DTCD CHECK
+    # =====================================================
+
+    dtcd_errors = []
+
+    for err in errors:
+
+        error_text = str(
+            err.get("error", "")
+        ).lower()
+
+        if (
+            "not balanced" in error_text
+            or "difference" in error_text
+        ):
+
+            dtcd_errors.append(err)
+
+    # =====================================================
+    # STATUS
+    # =====================================================
+
+    if dtcd_errors:
+
+        status = "ui_pushed_with_alert"
+
+    else:
+
+        status = "completed"
+
     return {
 
         "ui_result": result,
 
-        "processing_status": "completed"
+        "processing_status": status
     }
 
 
@@ -400,19 +504,70 @@ def notification_node(state):
     # FILTER DTCD ERRORS
     # =====================================================
 
-    dtcd_errors = [
+    dtcd_errors = []
 
-        err for err in errors
+    for err in errors:
 
-        if err.get("failed_field")
-        == "dtcd_difference"
-    ]
+        error_text = str(
+            err.get("error", "")
+        ).lower()
+
+        if (
+            "not balanced" in error_text
+            or "difference" in error_text
+        ):
+
+            dtcd_errors.append(err)
 
     # =====================================================
-    # LOGIN TO FRONTEND
+    # LOGIN WITH RETRY
     # =====================================================
 
-    token = login_tool()
+    token = None
+
+    for attempt in range(3):
+
+        try:
+
+            print(
+                f"\nLOGIN ATTEMPT "
+                f"{attempt + 1}/3\n"
+            )
+
+            token = login_tool()
+
+            print(
+                "\nLOGIN SUCCESSFUL\n"
+            )
+
+            break
+
+        except Exception as e:
+
+            print(
+                "\nLOGIN FAILED:\n"
+            )
+
+            print(e)
+
+            time.sleep(5)
+
+    # =====================================================
+    # LOGIN FAILED
+    # =====================================================
+
+    if token is None:
+
+        print(
+            "\nFRONTEND LOGIN FAILED "
+            "AFTER 3 ATTEMPTS\n"
+        )
+
+        return {
+
+            "processing_status":
+            "notification_failed"
+        }
 
     # =====================================================
     # PUSH ALERTS
@@ -426,19 +581,19 @@ def notification_node(state):
 
         alert_payload = {
 
-            "entry_no":
+            "Entry no":
             error.get(
                 "Entry no",
                 "UNKNOWN"
             ),
 
-            "account_code":
+            "Account code":
             error.get(
                 "Account code",
                 "UNKNOWN"
             ),
 
-            "sub_account":
+            "Sub Account":
             error.get(
                 "Sub Account",
                 "UNKNOWN"
@@ -454,10 +609,6 @@ def notification_node(state):
             "FAILED"
         }
 
-        # =====================================================
-        # PUSH ALERT
-        # =====================================================
-
         result = push_validation_alert_tool(
 
             token=token,
@@ -470,11 +621,6 @@ def notification_node(state):
         )
 
         print(result)
-
-    print(
-        "\nVALIDATION ALERTS "
-        "PUSHED TO UI\n"
-    )
 
     return {
 
@@ -503,8 +649,13 @@ def validation_router(state):
         []
     )
 
+    retry_count = state.get(
+        "retry_count",
+        0
+    )
+
     # =====================================================
-    # VALID
+    # VALID DATA
     # =====================================================
 
     if status == "valid":
@@ -516,19 +667,75 @@ def validation_router(state):
         return "valid"
 
     # =====================================================
-    # DTCD DIFFERENCE CHECK
+    # JSON / EXTRACTION ERRORS
     # =====================================================
 
-    dtcd_errors = [
+    validation_error = str(
+        validation_result.get(
+            "error",
+            ""
+        )
+    ).lower()
 
-        err for err in errors
+    if (
 
-        if err.get("failed_field")
-        == "dtcd_difference"
-    ]
+        "expecting value" in validation_error
+        or
+        "json" in validation_error
+        or
+        "decode" in validation_error
+
+    ):
+
+        print(
+            "\nJSON / EXTRACTION ERROR DETECTED\n"
+        )
+
+        retry_count += 1
+
+        state["retry_count"] = retry_count
+
+        print(
+            f"\nRETRY COUNT: "
+            f"{retry_count}/5\n"
+        )
+
+        # =================================================
+        # MAX RETRIES REACHED
+        # =================================================
+
+        if retry_count >= 5:
+
+            print(
+                "\nMAX JSON RETRIES REACHED\n"
+            )
+
+            return "notify"
+
+        return "re_extract"
 
     # =====================================================
-    # SEND DIRECTLY TO UI ALERT
+    # DTCD ERRORS
+    # =====================================================
+
+    dtcd_errors = []
+
+    for err in errors:
+
+        error_text = str(
+            err.get("error", "")
+        ).lower()
+
+        if (
+            "not balanced" in error_text
+            or
+            "difference" in error_text
+        ):
+
+            dtcd_errors.append(err)
+
+    # =====================================================
+    # DTCD FLOW
     # =====================================================
 
     if dtcd_errors:
@@ -537,7 +744,128 @@ def validation_router(state):
             "\nDTCD DIFFERENCE DETECTED\n"
         )
 
+        print(
+            "\nSENDING TO UI + ALERT FLOW\n"
+        )
+
+        return "push_with_alert"
+
+    # =====================================================
+    # NORMAL VALIDATION ERRORS
+    # =====================================================
+
+    retry_count += 1
+
+    state["retry_count"] = retry_count
+
+    print(
+        f"\nNORMAL RETRY COUNT: "
+        f"{retry_count}/5\n"
+    )
+
+    if retry_count >= 5:
+
+        print(
+            "\nMAX RETRIES COMPLETED\n"
+        )
+
         return "notify"
+
+    return "re_extract"
+
+    # =====================================================
+    # DTCD ERRORS
+    # =====================================================
+
+    dtcd_errors = []
+
+    for err in errors:
+
+        error_text = str(
+            err.get("error", "")
+        ).lower()
+
+        if (
+            "not balanced" in error_text
+            or
+            "difference" in error_text
+        ):
+
+            dtcd_errors.append(err)
+
+    # =====================================================
+    # DTCD FLOW
+    # =====================================================
+
+    if dtcd_errors:
+
+        print(
+            "\nDTCD DIFFERENCE DETECTED\n"
+        )
+
+        return "push_with_alert"
+
+    # =====================================================
+    # NORMAL VALIDATION ERRORS
+    # =====================================================
+
+    retry_count += 1
+
+    print(
+        f"\nNORMAL RETRY COUNT: "
+        f"{retry_count}/5\n"
+    )
+
+    if retry_count >= 5:
+
+        print(
+            "\nMAX RETRIES COMPLETED\n"
+        )
+
+        return "notify"
+
+    state["retry_count"] = retry_count
+
+    return "re_extract"
+
+    # =====================================================
+    # DTCD CHECK
+    # =====================================================
+
+    dtcd_errors = []
+
+    for err in errors:
+
+        error_text = str(
+            err.get("error", "")
+        ).lower()
+
+        # =================================================
+        # DTCD ERRORS SHOULD NOT GO TO RE-EXTRACT
+        # =================================================
+
+        if (
+            "not balanced" in error_text
+            or "difference" in error_text
+        ):
+
+            dtcd_errors.append(err)
+
+    # =====================================================
+    # PUSH WITH ALERT
+    # =====================================================
+
+    if dtcd_errors:
+
+        print(
+            "\nDTCD DIFFERENCE DETECTED\n"
+        )
+
+        print(
+            "\nSENDING TO UI + ALERT FLOW\n"
+        )
+
+        return "push_with_alert"
 
     # =====================================================
     # NORMAL RETRY FLOW
@@ -566,10 +894,11 @@ def validation_router(state):
         return "notify"
 
     # =====================================================
-    # RE-EXTRACT
+    # NORMAL RE-EXTRACTION
     # =====================================================
 
     return "re_extract"
+ 
 
 
 # =========================================================
@@ -669,6 +998,8 @@ workflow.add_conditional_edges(
 
         "valid": "push_to_ui",
 
+        "push_with_alert": "push_to_ui",
+
         "re_extract": "re_extract",
 
         "notify": "notification"
@@ -677,13 +1008,29 @@ workflow.add_conditional_edges(
 
 
 # =========================================================
-# FINAL NODES
+# UI CONDITIONAL FLOW
 # =========================================================
 
-workflow.add_edge(
+workflow.add_conditional_edges(
+
     "push_to_ui",
-    END
+
+    lambda state:
+    state["processing_status"],
+
+    {
+
+        "completed": END,
+
+        "ui_pushed_with_alert":
+        "notification"
+    }
 )
+
+
+# =========================================================
+# FINAL EDGE
+# =========================================================
 
 workflow.add_edge(
     "notification",
