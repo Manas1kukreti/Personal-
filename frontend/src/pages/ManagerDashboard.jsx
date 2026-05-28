@@ -1,5 +1,5 @@
 import React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiCheck, FiChevronRight, FiClock, FiRefreshCw, FiRotateCcw, FiSearch, FiShield, FiX } from "react-icons/fi";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
@@ -19,6 +19,7 @@ const DATE_PRESETS = [
 ];
 
 export default function ManagerDashboard() {
+  const queueRequestRef = useRef(0);
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -37,6 +38,8 @@ export default function ManagerDashboard() {
   const [dateFilters, setDateFilters] = useState({ dateFrom: "", dateTo: "" });
 
   const loadQueue = useCallback(async () => {
+    const requestId = queueRequestRef.current + 1;
+    queueRequestRef.current = requestId;
     setQueueLoading(true);
     setQueueError("");
     try {
@@ -44,11 +47,18 @@ export default function ManagerDashboard() {
       if (dateFilters.dateFrom) params.set("date_from", `${dateFilters.dateFrom}T00:00:00`);
       if (dateFilters.dateTo) params.set("date_to", `${dateFilters.dateTo}T23:59:59`);
       const response = await api.get(`/uploads${params.toString() ? `?${params.toString()}` : ""}`);
-      setUploads(response.data);
+      if (requestId === queueRequestRef.current) {
+        const nextUploads = Array.isArray(response.data) ? response.data : [];
+        setUploads(nextUploads.filter((upload) => upload.status !== "parse_failed"));
+      }
     } catch (err) {
-      setQueueError(err.response?.data?.detail || "Unable to load approvals. Please try again.");
+      if (requestId === queueRequestRef.current) {
+        setQueueError(err.response?.data?.detail || "Unable to load approvals. Please try again.");
+      }
     } finally {
-      setQueueLoading(false);
+      if (requestId === queueRequestRef.current) {
+        setQueueLoading(false);
+      }
     }
   }, [dateFilters]);
 
@@ -226,10 +236,10 @@ export default function ManagerDashboard() {
             )}
           </div>
 
-          <div className="approvals-queue-list">
+          <div className={`approvals-queue-list${queueLoading && queueItems.length ? " is-refreshing" : ""}`}>
             {queueError && <div className="approvals-banner approvals-banner-error">{queueError}</div>}
             {queueLoading && !queueItems.length && <div className="approvals-empty">Loading approvals...</div>}
-            {!queueLoading && queueItems.map((upload) => {
+            {queueItems.map((upload) => {
               const active = selected?.upload_id === upload.id;
               return (
                 <button

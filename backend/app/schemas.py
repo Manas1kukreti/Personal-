@@ -85,6 +85,7 @@ class UploadVersionRead(BaseModel):
 
 class UploadPreview(BaseModel):
     upload_id: UUID
+    sub_id: int | None = None
     filename: str
     status: str
     version_number: int = 1
@@ -102,6 +103,7 @@ class UploadPreview(BaseModel):
 
 class UploadSummary(BaseModel):
     id: UUID
+    sub_id: int | None = None
     filename: str
     status: str
     version_number: int = 1
@@ -150,4 +152,24 @@ class SubmissionCommentRead(BaseModel):
     user_name: str
     user_role: str
     message: str
+    created_at: datetime
+
+
+class AlertCreate(BaseModel):
+    type: str = Field(default="dtcd_validation")
+    entry_no: str = Field(alias="Entry no", min_length=1, max_length=80)
+    account_code: str = Field(alias="Account code", min_length=1, max_length=80)
+    sub_account: str = Field(alias="Sub Account", min_length=1, max_length=255)
+    difference: float
+    status: str = Field(default="FAILED", max_length=40)
+
+
+class AlertRead(BaseModel):
+    id: UUID
+    entry_no: str
+    account_code: str
+    sub_account: str
+    difference: float
+    status: str
+    is_read: bool
     created_at: datetime

@@ -3512,6 +3512,10 @@ td {
   display: grid;
 }
 
+.approvals-queue-list.is-refreshing {
+  opacity: 0.72;
+}
+
 .approvals-queue-card {
   width: 100%;
   text-align: left;
@@ -5436,4 +5440,114 @@ body {
 
 .lf-upload-page .lf-upload-dropzone {
   border-style: dashed !important;
+}
+
+.lf-alerts-page {
+  display: grid;
+  gap: 18px;
+}
+
+.lf-alerts-header,
+.lf-alerts-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lf-alerts-header h1 {
+  margin: 0;
+  color: #090d1f;
+  font-size: 28px;
+}
+
+.lf-alerts-header p {
+  margin: 6px 0 0;
+  color: #526084;
+}
+
+.lf-alerts-filters {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+  border: 0.5px solid rgba(255, 255, 255, 0.7);
+}
+
+.lf-alerts-search {
+  min-width: 230px;
+  min-height: 42px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 0.5px solid rgba(99, 102, 241, 0.14);
+  color: #526084;
+}
+
+.lf-alerts-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #090d1f;
+}
+
+.lf-alerts-table-wrap {
+  overflow: hidden;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
+  border: 0.5px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 18px 44px rgba(67, 56, 202, 0.1);
+}
+
+.lf-alerts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lf-alerts-table th,
+.lf-alerts-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.08);
+  text-align: left;
+  font-size: 13px;
+}
+
+.lf-alerts-table th {
+  color: #7480a5;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lf-alert-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.lf-alerts-empty {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #526084;
+}
+
+.lf-alerts-empty strong {
+  color: #090d1f;
 }

@@ -374,8 +374,9 @@ def _format_gl_row(row: TransactionRow, submission: Submission | None) -> dict:
     }
 
 def _role_filters_no_status(user: User) -> list:
+    non_parse_failed = Submission.review_status != ReviewStatus.parse_failed
     if user.role == UserRole.employee:
-        return [Submission.user_id == user.id]
+        return [Submission.user_id == user.id, non_parse_failed]
     if user.role == UserRole.manager:
-        return [Submission.user_id.in_(select(User.id).where(User.manager_id == user.id))]
-    return []
+        return [Submission.user_id.in_(select(User.id).where(User.manager_id == user.id)), non_parse_failed]
+    return [non_parse_failed]

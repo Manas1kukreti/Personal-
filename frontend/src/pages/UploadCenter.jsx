@@ -36,6 +36,7 @@ const STATUS_META = {
 export default function UploadCenter() {
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
+  const selectAllUploadsRef = useRef(null);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -43,17 +44,27 @@ export default function UploadCenter() {
   const [drag, setDrag] = useState(false);
   const [error, setError] = useState("");
   const [uploads, setUploads] = useState([]);
+  const [selectedUploadIds, setSelectedUploadIds] = useState(() => new Set());
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
 
   const loadUploads = useCallback(async () => {
     const response = await api.get("/uploads");
-    setUploads(Array.isArray(response.data) ? response.data : []);
+    const nextUploads = Array.isArray(response.data) ? response.data : [];
+    setUploads(nextUploads.filter((upload) => normalizeStatus(upload.status) !== "parse_failed"));
   }, []);
 
   useEffect(() => {
     loadUploads().catch(() => setUploads([]));
   }, [loadUploads]);
+
+  useEffect(() => {
+    const uploadIds = new Set(uploads.map((upload, index) => uploadKey(upload, index)));
+    setSelectedUploadIds((current) => {
+      const next = new Set([...current].filter((id) => uploadIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [uploads]);
 
   useWebSocket(
     "uploads",
@@ -134,10 +145,18 @@ export default function UploadCenter() {
 
   const pageCount = Math.max(1, Math.ceil(filteredUploads.length / PAGE_SIZE));
   const pageRows = filteredUploads.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const visibleSelectedCount = pageRows.filter((upload, index) => selectedUploadIds.has(uploadKey(upload, page * PAGE_SIZE + index))).length;
+  const selectedUploadCount = filteredUploads.filter((upload, index) => selectedUploadIds.has(uploadKey(upload, index))).length;
+  const allVisibleUploadsSelected = pageRows.length > 0 && visibleSelectedCount === pageRows.length;
 
   useEffect(() => {
     setPage(0);
   }, [search]);
+
+  useEffect(() => {
+    if (!selectAllUploadsRef.current) return;
+    selectAllUploadsRef.current.indeterminate = visibleSelectedCount > 0 && !allVisibleUploadsSelected;
+  }, [allVisibleUploadsSelected, visibleSelectedCount]);
 
   async function submitUpload() {
     if (!canSubmit) return;
@@ -183,6 +202,31 @@ export default function UploadCenter() {
     setError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (folderInputRef.current) folderInputRef.current.value = "";
+  }
+
+  function toggleUploadSelection(upload, index) {
+    const id = uploadKey(upload, index);
+    setSelectedUploadIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleVisibleUploadsSelection() {
+    setSelectedUploadIds((current) => {
+      const next = new Set(current);
+      if (allVisibleUploadsSelected) {
+        pageRows.forEach((upload, index) => next.delete(uploadKey(upload, page * PAGE_SIZE + index)));
+      } else {
+        pageRows.forEach((upload, index) => next.add(uploadKey(upload, page * PAGE_SIZE + index)));
+      }
+      return next;
+    });
   }
 
   return (
@@ -293,7 +337,7 @@ export default function UploadCenter() {
         <div className="lf-upload-table-card__header">
           <div>
             <h2>Recent Uploads</h2>
-            <p>{filteredUploads.length} files</p>
+            <p>{selectedUploadCount ? `${selectedUploadCount} selected` : `${filteredUploads.length} files`}</p>
           </div>
           <div className="lf-upload-table-card__tools">
             <label className="lf-upload-search">
@@ -310,7 +354,15 @@ export default function UploadCenter() {
           <table className="lf-upload-table">
             <thead>
               <tr>
-                <th className="is-check"><input type="checkbox" aria-label="Select all uploads" /></th>
+                <th className="is-check">
+                  <input
+                    ref={selectAllUploadsRef}
+                    type="checkbox"
+                    aria-label="Select all visible uploads"
+                    checked={allVisibleUploadsSelected}
+                    onChange={toggleVisibleUploadsSelection}
+                  />
+                </th>
                 <th>File Name</th>
                 <th>Size</th>
                 <th>Records</th>
@@ -325,7 +377,14 @@ export default function UploadCenter() {
                   const statusMeta = getStatusMeta(upload.status);
                   return (
                     <tr key={upload.id || upload.upload_id || `${upload.filename}-${index}`}>
-                      <td className="is-check"><input type="checkbox" aria-label={`Select ${upload.filename || "upload"}`} /></td>
+                      <td className="is-check">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${upload.filename || "upload"}`}
+                          checked={selectedUploadIds.has(uploadKey(upload, page * PAGE_SIZE + index))}
+                          onChange={() => toggleUploadSelection(upload, page * PAGE_SIZE + index)}
+                        />
+                      </td>
                       <td>
                         <div className="lf-upload-file-cell">
                           <div className={`lf-upload-file-icon ${fileIconClass(upload.filename)}`}>
@@ -383,6 +442,10 @@ export default function UploadCenter() {
       </section>
     </div>
   );
+}
+
+function uploadKey(upload, index) {
+  return String(upload.id || upload.upload_id || `${upload.filename || "upload"}-${upload.created_at || upload.updated_at || index}`);
 }
 
 function UploadProgressCell({ upload, statusMeta }) {

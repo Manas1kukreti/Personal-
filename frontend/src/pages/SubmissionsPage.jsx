@@ -1,6 +1,6 @@
 import React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiArchive, FiDownload, FiFilter, FiMessageSquare, FiSearch, FiUploadCloud } from "react-icons/fi";
+import { FiArchive, FiDownload, FiMessageSquare, FiSearch, FiUploadCloud } from "react-icons/fi";
 import { api } from "../api/client.js";
 import CommentThread from "../components/CommentThread.jsx";
 
@@ -15,19 +15,20 @@ const PAGE_SIZE = 10;
 
 export default function SubmissionsPage() {
   const reuploadInputRef = useRef(null);
+  const selectAllRef = useRef(null);
   const [uploads, setUploads] = useState([]);
   const [selectedUpload, setSelectedUpload] = useState(null);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState(() => new Set());
   const [reuploadTarget, setReuploadTarget] = useState(null);
   const [reuploading, setReuploading] = useState("");
   const [reuploadError, setReuploadError] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
 
   const loadUploads = useCallback(async () => {
     const response = await api.get("/uploads");
-    setUploads(response.data);
+    setUploads(response.data.filter((upload) => upload.status !== "parse_failed"));
   }, []);
 
   useEffect(() => {
@@ -40,6 +41,14 @@ export default function SubmissionsPage() {
     if (freshUpload) setSelectedUpload(freshUpload);
   }, [selectedUpload, uploads]);
 
+  useEffect(() => {
+    const uploadIds = new Set(uploads.map((upload) => upload.id));
+    setSelectedSubmissionIds((current) => {
+      const next = new Set([...current].filter((id) => uploadIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [uploads]);
+
   // Reset to page 1 whenever filters change
   useEffect(() => {
     setPage(1);
@@ -47,12 +56,24 @@ export default function SubmissionsPage() {
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return uploads.filter((upload) => {
+    return uploads.filter((upload, index) => {
+      const submitted = formatSubmitted(upload.created_at);
       const matchesStatus = !status || upload.status === status;
       const matchesSearch =
         !search ||
-        [upload.filename, upload.uploader_name, upload.status, upload.id].some((value) =>
-          String(value || "").toLowerCase().includes(search)
+        [
+          upload.filename,
+          upload.uploader_name,
+          upload.status,
+          upload.id,
+          upload.sub_id,
+          formatSubmissionCode(upload, index),
+          formatSubmissionCode(upload, index, 6),
+          upload.created_at,
+          submitted.date,
+          submitted.time,
+        ].some(
+          (value) => String(value || "").toLowerCase().includes(search)
         );
       return matchesStatus && matchesSearch;
     });
@@ -61,6 +82,14 @@ export default function SubmissionsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const selectedUploads = filtered.filter((upload) => selectedSubmissionIds.has(upload.id));
+  const visibleSelectionCount = paginated.filter((upload) => selectedSubmissionIds.has(upload.id)).length;
+  const allVisibleSelected = paginated.length > 0 && visibleSelectionCount === paginated.length;
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = visibleSelectionCount > 0 && !allVisibleSelected;
+  }, [allVisibleSelected, visibleSelectionCount]);
 
   function getPageNumbers() {
     const pages = [];
@@ -79,9 +108,10 @@ export default function SubmissionsPage() {
   }
 
   function exportCsv() {
+    const exportRows = selectedUploads.length ? selectedUploads : filtered;
     const csv = [
       ["Filename", "Status", "Rows", "Columns", "Uploader", "Created At", "Reviewed At"],
-      ...filtered.map((upload) => [
+      ...exportRows.map((upload) => [
         upload.filename,
         upload.status,
         upload.total_rows,
@@ -102,6 +132,30 @@ export default function SubmissionsPage() {
     link.download = `ledgerflow-submissions-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function toggleSubmissionSelection(uploadId) {
+    setSelectedSubmissionIds((current) => {
+      const next = new Set(current);
+      if (next.has(uploadId)) {
+        next.delete(uploadId);
+      } else {
+        next.add(uploadId);
+      }
+      return next;
+    });
+  }
+
+  function toggleVisibleSelection() {
+    setSelectedSubmissionIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        paginated.forEach((upload) => next.delete(upload.id));
+      } else {
+        paginated.forEach((upload) => next.add(upload.id));
+      }
+      return next;
+    });
   }
 
   function startReupload(upload) {
@@ -175,39 +229,15 @@ export default function SubmissionsPage() {
 
         <div className="lf-submissions-toolbar__actions">
           <button
-            className="lf-submissions-filter-button"
-            onClick={() => setShowFilters((value) => !value)}
-            type="button"
-          >
-            <FiFilter size={18} />
-            <span>Filter</span>
-          </button>
-          <button
             className="secondary-button"
             onClick={exportCsv}
             disabled={!filtered.length}
             type="button"
           >
-            <FiDownload /> Export
+            <FiDownload /> {selectedUploads.length ? `Export (${selectedUploads.length})` : "Export"}
           </button>
         </div>
       </section>
-
-      {showFilters && (
-        <section className="lf-submissions-filter-row">
-          <select
-            className="form-input"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="declined">Declined</option>
-            <option value="reupload_requested">Re-upload requested</option>
-          </select>
-        </section>
-      )}
 
       {reuploadError && <div className="lf-submissions-error">{reuploadError}</div>}
 
@@ -217,7 +247,13 @@ export default function SubmissionsPage() {
           <thead>
             <tr>
               <th className="is-checkbox">
-                <input type="checkbox" aria-label="Select all" />
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  aria-label="Select all visible submissions"
+                  checked={allVisibleSelected}
+                  onChange={toggleVisibleSelection}
+                />
               </th>
               <th>ID</th>
               <th>User</th>
@@ -238,7 +274,12 @@ export default function SubmissionsPage() {
                   className={selectedUpload?.id === upload.id ? "is-selected" : ""}
                 >
                   <td className="is-checkbox">
-                    <input type="checkbox" aria-label={`Select ${upload.filename}`} />
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${upload.filename}`}
+                      checked={selectedSubmissionIds.has(upload.id)}
+                      onChange={() => toggleSubmissionSelection(upload.id)}
+                    />
                   </td>
                   <td className="mono-cell">{formatSubmissionCode(upload, globalIndex)}</td>
                   <td className="lf-submissions-user">{upload.uploader_name || "Unknown User"}</td>
@@ -362,12 +403,9 @@ export default function SubmissionsPage() {
   );
 }
 
-function formatSubmissionCode(upload, index) {
-  if (upload.id) {
-    const digits = String(upload.id).replace(/\D/g, "").slice(-5).padStart(5, "0");
-    return `SUB-${digits}`;
-  }
-  return `SUB-${String(index + 1).padStart(5, "0")}`;
+function formatSubmissionCode(upload, index, minDigits = 5) {
+  if (upload.sub_id) return `SUB-${String(upload.sub_id).padStart(minDigits, "0")}`;
+  return `SUB-${String(index + 1).padStart(minDigits, "0")}`;
 }
 
 function inferSubmissionType(upload) {

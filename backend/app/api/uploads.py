@@ -127,6 +127,12 @@ async def save_upload(
     )
     db.add(submission)
     await db.flush()
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Submission)
+        .where(Submission.review_status != ReviewStatus.parse_failed)
+    )
+    submission.sub_id = count
 
     path = upload_dir / f"{submission.id}{ext}"
     path.write_bytes(contents)
@@ -155,6 +161,7 @@ async def save_upload(
 
     return UploadPreview(
         upload_id=submission.id,
+        sub_id=submission.sub_id,
         filename=submission.file_name,
         status=submission.review_status.value,
         version_number=submission.version_number,
@@ -237,6 +244,7 @@ def parse_transaction_records(path: Path, max_preview_rows: int) -> tuple[dict[s
 async def mark_upload_parse_failed(db: AsyncSession, submission: Submission, detail: Any) -> None:
     await db.refresh(submission)
     submission.review_status = ReviewStatus.parse_failed
+    submission.sub_id = None
     await db.commit()
     payload = {
         "upload_id": submission.id,
@@ -296,6 +304,8 @@ async def list_uploads(
     )
     if status:
         stmt = stmt.where(Submission.review_status == ReviewStatus(status))
+    else:
+        stmt = stmt.where(Submission.review_status != ReviewStatus.parse_failed)
     if date_from:
         stmt = stmt.where(Submission.uploaded_at >= date_from)
     if date_to:
@@ -309,6 +319,7 @@ async def list_uploads(
     return [
         UploadSummary(
             id=submission.id,
+            sub_id=submission.sub_id,
             filename=submission.file_name,
             status=submission.review_status.value,
             version_number=submission.version_number,
@@ -361,6 +372,7 @@ async def get_upload(
 
     return UploadPreview(
         upload_id=submission.id,
+        sub_id=submission.sub_id,
         filename=submission.file_name,
         status=submission.review_status.value,
         version_number=submission.version_number,

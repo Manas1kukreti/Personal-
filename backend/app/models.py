@@ -67,6 +67,7 @@ class Submission(Base):
     __tablename__ = "submissions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sub_id: Mapped[int] = mapped_column(Integer, nullable=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -197,3 +198,16 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     actor: Mapped["User | None"] = relationship(foreign_keys=[actor_id])
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entry_no: Mapped[str] = mapped_column(String(80), nullable=False)
+    account_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    sub_account: Mapped[str] = mapped_column(String(255), nullable=False)
+    difference: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="FAILED")
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

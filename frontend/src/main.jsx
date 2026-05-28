@@ -10,6 +10,7 @@ import SubmissionsPage from "./pages/SubmissionsPage.jsx";
 import ManagerDashboard from "./pages/ManagerDashboard.jsx";
 import AdminDashboard from "./pages/AdminDashboard.jsx";
 import AuditPage from "./pages/AuditPage.jsx";
+import AlertsPage from "./pages/AlertsPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import AuthPage from "./pages/AuthPage.jsx";
 import "./styles.css";
@@ -29,6 +30,7 @@ createRoot(document.getElementById("root")).render(
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/uploads" element={<UploadCenter />} />
               <Route path="/submissions" element={<SubmissionsPage />} />
+              <Route path="/alerts" element={<AlertsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>

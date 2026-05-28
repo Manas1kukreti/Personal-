@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   FiActivity,
+  FiAlertTriangle,
   FiArchive,
   FiBell,
   FiCheckSquare,
@@ -20,11 +21,13 @@ import {
 import { createPortal } from "react-dom";
 import { api } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.jsx";
+import { useWebSocket } from "../hooks/useWebSocket.js";
 import logo from "../asset/logo.png";
 
 const navItems = [
   { to: "/dashboard", label: "Analytics", icon: FiTrendingUp, keywords: ["overview", "kpi", "transactions"] },
   { to: "/submissions", label: "Submissions", icon: FiArchive, keywords: ["history", "conversation", "reupload"] },
+  { to: "/alerts", label: "Validation Alerts", icon: FiAlertTriangle, keywords: ["dtcd", "failed", "imbalance", "validation"] },
   { to: "/manager", label: "Manager", icon: FiCheckSquare, roles: ["manager"], keywords: ["review", "queue", "approve"] },
   { to: "/admin", label: "Admin", icon: FiUserCheck, roles: ["admin"], keywords: ["assignments", "managers", "employees"] },
   { to: "/settings", label: "Settings", icon: FiSettings, keywords: ["account", "profile", "security"] },
@@ -72,13 +75,19 @@ export default function AppShell() {
       return;
     }
     const endpoint = ["manager", "admin"].includes(user.role) ? "/uploads?status=pending" : "/uploads";
-    const response = await api.get(endpoint);
-    const items = response.data.slice(0, 5);
-    setNotifications(items);
+    const [uploadsResponse, alertsResponse] = await Promise.all([
+      api.get(endpoint),
+      api.get("/alerts"),
+    ]);
+    const uploadItems = uploadsResponse.data.slice(0, 5).map((upload) => ({ type: "upload", ...upload }));
+    const unreadAlerts = alertsResponse.data.filter((alert) => !alert.is_read);
+    const alertItems = unreadAlerts.slice(0, 5).map((alert) => ({ type: "dtcd_alert", ...alert }));
+    setNotifications([...alertItems, ...uploadItems].slice(0, 8));
     setPendingActions(
-      user.role === "employee"
-        ? items.filter((item) => item.status === "pending" || item.status === "processing").length
-        : response.data.length,
+      unreadAlerts.length +
+        (user.role === "employee"
+          ? uploadsResponse.data.filter((item) => item.status === "pending" || item.status === "processing").length
+          : uploadsResponse.data.length),
     );
   }, [user]);
 
@@ -108,9 +117,29 @@ export default function AppShell() {
     if (!commandOpen) setCommandQuery("");
   }, [commandOpen]);
 
-  function openNotification(upload) {
+  useWebSocket(
+    "notifications",
+    useCallback((event) => {
+      if (event.event !== "dtcd_alert") return;
+      const alert = { type: "dtcd_alert", ...event.payload };
+      setNotifications((current) => [alert, ...current.filter((item) => item.id !== alert.id)].slice(0, 8));
+      setPendingActions((current) => current + 1);
+    }, []),
+  );
+
+  async function openNotification(notification) {
     setShowNotifications(false);
-    if (user?.role === "manager") return navigate(`/manager?submission_id=${upload.id}`);
+    if (notification.type === "dtcd_alert") {
+      try {
+        await api.patch(`/alerts/${notification.id}/read`);
+      } catch {
+        // Keep navigation responsive even if the read marker fails.
+      }
+      setPendingActions((current) => Math.max(0, current - (notification.is_read ? 0 : 1)));
+      setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, is_read: true } : item));
+      return navigate(`/alerts?entry=${encodeURIComponent(notification.entry_no)}&account=${encodeURIComponent(notification.account_code)}`);
+    }
+    if (user?.role === "manager") return navigate(`/manager?submission_id=${notification.id}`);
     if (user?.role === "admin") return navigate("/admin");
     navigate("/uploads");
   }
@@ -135,7 +164,7 @@ export default function AppShell() {
 
         {/* Nav links */}
         <nav className="lf-reference-sidebar__nav">
-          {visibleNavItems.slice(0, 5).map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.to || location.pathname.startsWith(item.to + "/");
             return (
@@ -208,11 +237,20 @@ export default function AppShell() {
                   </div>
                   <div>
                     {notifications.length
-                      ? notifications.map((upload) => (
-                          <button key={upload.id} className="lf-reference-notification-row" onClick={() => openNotification(upload)} type="button">
+                      ? notifications.map((notification) => (
+                          <button key={`${notification.type}-${notification.id}`} className="lf-reference-notification-row" onClick={() => openNotification(notification)} type="button">
                             <div>
-                              <strong>{upload.filename}</strong>
-                              <span>{upload.total_rows || upload.rows || 0} rows</span>
+                              {notification.type === "dtcd_alert" ? (
+                                <>
+                                  <strong>{notification.entry_no} · {notification.account_code}</strong>
+                                  <span>Difference {formatNotificationCurrency(notification.difference)}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <strong>{notification.filename}</strong>
+                                  <span>{notification.total_rows || notification.rows || 0} rows</span>
+                                </>
+                              )}
                             </div>
                           </button>
                         ))
@@ -269,4 +307,12 @@ export default function AppShell() {
       )}
     </div>
   );
+}
+
+function formatNotificationCurrency(value) {
+  return Number(value || 0).toLocaleString("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  });
 }
