@@ -50,7 +50,7 @@ Build variable:
 VITE_API_BASE_URL=https://<your-backend-domain>
 ```
 
-The frontend container also listens on Railway's injected `PORT` variable.
+The frontend container listens on port `80`. In Railway Networking, keep the public domain pointed to port `80`.
 
 ## Agent test endpoints
 
