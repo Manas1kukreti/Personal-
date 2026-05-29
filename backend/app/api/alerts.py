@@ -105,7 +105,7 @@ async def alert_to_schema(alert: Alert, db: AsyncSession) -> AlertRead:
 async def alert_transaction_detail(alert: Alert, db: AsyncSession) -> dict | None:
     try:
         entry_group, _ = parse_entry_no(alert.entry_no)
-    except (TypeError, ValueError):
+    except (IndexError, TypeError, ValueError):
         return None
 
     matched_row = await db.scalar(
