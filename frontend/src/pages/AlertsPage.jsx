@@ -1,4 +1,4 @@
-import React from "react";
+importimport React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiAlertTriangle, FiArrowRight, FiMoreVertical, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
@@ -87,7 +87,7 @@ export default function AlertsPage() {
       <section className="lf-alerts-header">
         <div>
           <h1>Validation Alerts</h1>
-          <p>DTCD failures that need review before ledger processing continues.</p>
+          <p>Debit and Credit Transaction failures that need review before ledger processing continues.</p>
         </div>
         <button className="secondary-button" onClick={loadAlerts} disabled={loading} type="button">
           <FiRefreshCw size={16} />
