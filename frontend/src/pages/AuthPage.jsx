@@ -92,7 +92,7 @@ export default function AuthPage() {
                   onChange={(event) => setName(event.target.value)}
                   minLength={2}
                   required
-                  placeholder="John Doe"
+                  placeholder="Manas Kukreti"
                 />
               </Field>
             )}
