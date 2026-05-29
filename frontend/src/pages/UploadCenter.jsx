@@ -37,6 +37,7 @@ export default function UploadCenter() {
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const selectAllUploadsRef = useRef(null);
+  const activeUploadIdRef = useRef(null);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [progress, setProgress] = useState(0);
@@ -70,14 +71,17 @@ export default function UploadCenter() {
     "uploads",
     useCallback(
       (event) => {
-        if (event.event === "upload_progress" || event.event === "upload.progress") {
+        if (
+          (event.event === "upload_progress" || event.event === "upload.progress") &&
+          event.payload?.upload_id === activeUploadIdRef.current
+        ) {
           setProgress(event.payload.progress || 0);
           setMessage(event.payload.filename ? `${event.payload.filename} processing` : "Upload processing");
         }
         if (event.event === "upload_status" || event.event === "approval.decision") {
           setMessage(`Upload ${formatStatus(event.payload.status)}`);
         }
-        if (event.event === "upload.complete" && event.payload?.upload_id === preview?.upload_id) {
+        if (event.event === "upload.complete" && event.payload?.upload_id === activeUploadIdRef.current) {
           api
             .get(`/uploads/${event.payload.upload_id}`)
             .then((response) => {
@@ -89,7 +93,7 @@ export default function UploadCenter() {
               setMessage("Upload completed. Refresh to load the preview.");
             });
         }
-        if (event.event === "upload.failed" && event.payload?.upload_id === preview?.upload_id) {
+        if (event.event === "upload.failed" && event.payload?.upload_id === activeUploadIdRef.current) {
           setProgress(100);
           const detail = event.payload.error;
           setError(typeof detail === "string" ? detail : "Upload validation failed. Please check the file and try again.");
@@ -99,7 +103,7 @@ export default function UploadCenter() {
           loadUploads().catch(() => setUploads([]));
         }
       },
-      [loadUploads, preview?.upload_id]
+      [loadUploads]
     )
   );
 
@@ -169,6 +173,7 @@ export default function UploadCenter() {
     try {
       const response = await api.post("/uploads", form, { headers: { "Content-Type": "multipart/form-data" } });
       setPreview(response.data);
+      activeUploadIdRef.current = response.data?.upload_id ?? null;
       setProgress(40);
       setMessage("File received. Validation is running in the background.");
       await loadUploads();
@@ -189,12 +194,14 @@ export default function UploadCenter() {
   function selectFile(nextFile) {
     setFile(nextFile);
     setPreview(null);
+    activeUploadIdRef.current = null;
     setProgress(0);
     setError("");
     setMessage("");
   }
 
   function reset() {
+    activeUploadIdRef.current = null;
     setFile(null);
     setPreview(null);
     setProgress(0);

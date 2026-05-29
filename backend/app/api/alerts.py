@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
-from app.models import Alert, User, UserRole
+from app.models import Alert, TransactionRow, User, UserRole
 from app.schemas import AlertCreate, AlertRead
+from app.services.excel_parser import parse_entry_no
 from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -35,10 +36,11 @@ async def create_alert(
     await db.commit()
     await db.refresh(alert)
 
-    alert_payload = alert_to_schema(alert).model_dump(mode="json")
+    alert_schema = await alert_to_schema(alert, db)
+    alert_payload = alert_schema.model_dump(mode="json")
     await ws_manager.broadcast("dashboard", "dtcd_alert", alert_payload)
     await ws_manager.broadcast("notifications", "dtcd_alert", alert_payload)
-    return alert_to_schema(alert)
+    return alert_schema
 
 
 @router.get("", response_model=list[AlertRead])
@@ -55,7 +57,7 @@ async def list_alerts(
         stmt = stmt.where(Alert.account_code.ilike(f"%{account}%"))
 
     alerts = (await db.execute(stmt)).scalars().all()
-    return [alert_to_schema(alert) for alert in alerts]
+    return [await alert_to_schema(alert, db) for alert in alerts]
 
 
 @router.patch("/{alert_id}/read", response_model=AlertRead)
@@ -70,7 +72,7 @@ async def mark_alert_read(
     alert.is_read = True
     await db.commit()
     await db.refresh(alert)
-    return alert_to_schema(alert)
+    return await alert_to_schema(alert, db)
 
 
 @router.patch("/read-all")
@@ -83,8 +85,8 @@ async def mark_all_alerts_read(
     return {"updated": result.rowcount or 0}
 
 
-def alert_to_schema(alert: Alert) -> AlertRead:
-    return AlertRead(
+async def alert_to_schema(alert: Alert, db: AsyncSession) -> AlertRead:
+    schema = AlertRead(
         id=alert.id,
         entry_no=alert.entry_no,
         account_code=alert.account_code,
@@ -94,3 +96,51 @@ def alert_to_schema(alert: Alert) -> AlertRead:
         is_read=alert.is_read,
         created_at=alert.created_at,
     )
+    detail = await alert_transaction_detail(alert, db)
+    if detail:
+        return schema.model_copy(update=detail)
+    return schema
+
+
+async def alert_transaction_detail(alert: Alert, db: AsyncSession) -> dict | None:
+    try:
+        entry_group, _ = parse_entry_no(alert.entry_no)
+    except (TypeError, ValueError):
+        return None
+
+    matched_row = await db.scalar(
+        select(TransactionRow)
+        .where(
+            TransactionRow.entry_group == entry_group,
+            TransactionRow.account_code == alert.account_code,
+        )
+        .order_by(desc(TransactionRow.date))
+        .limit(1)
+    )
+    if not matched_row:
+        return None
+
+    rows = (
+        await db.execute(
+            select(TransactionRow)
+            .where(
+                TransactionRow.submission_id == matched_row.submission_id,
+                TransactionRow.entry_group == matched_row.entry_group,
+            )
+            .order_by(TransactionRow.entry_line)
+        )
+    ).scalars().all()
+
+    debit_row = next((row for row in rows if row.debit_amount is not None), None)
+    credit_row = next((row for row in rows if row.credit_amount is not None), None)
+
+    return {
+        "transaction_id": f"{matched_row.submission_id}:{matched_row.entry_group}",
+        "upload_id": matched_row.submission_id,
+        "debit_account_name": debit_row.sub_account if debit_row else None,
+        "debit_account_code": debit_row.account_code if debit_row else None,
+        "debit_amount": float(debit_row.debit_amount) if debit_row and debit_row.debit_amount is not None else None,
+        "credit_account_name": credit_row.sub_account if credit_row else None,
+        "credit_account_code": credit_row.account_code if credit_row else None,
+        "credit_amount": float(credit_row.credit_amount) if credit_row and credit_row.credit_amount is not None else None,
+    }

@@ -173,3 +173,11 @@ class AlertRead(BaseModel):
     status: str
     is_read: bool
     created_at: datetime
+    transaction_id: str | None = None
+    upload_id: UUID | None = None
+    debit_account_name: str | None = None
+    debit_account_code: str | None = None
+    debit_amount: float | None = None
+    credit_account_name: str | None = None
+    credit_account_code: str | None = None
+    credit_amount: float | None = None

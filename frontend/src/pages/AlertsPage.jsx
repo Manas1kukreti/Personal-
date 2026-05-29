@@ -1,6 +1,6 @@
 import React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiAlertTriangle, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
+import { FiAlertTriangle, FiArrowRight, FiMoreVertical, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import { useWebSocket } from "../hooks/useWebSocket.js";
@@ -12,6 +12,8 @@ export default function AlertsPage() {
   const [entryFilter, setEntryFilter] = useState(searchParams.get("entry") || "");
   const [accountFilter, setAccountFilter] = useState(searchParams.get("account") || "");
   const [statusFilter, setStatusFilter] = useState("");
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [selectedAlert, setSelectedAlert] = useState(null);
 
   const syncUrlFilters = useCallback(
     (nextEntry, nextAccount) => {
@@ -75,6 +77,11 @@ export default function AlertsPage() {
     setSearchParams({}, { replace: true });
   }
 
+  function openDetails(alert) {
+    setSelectedAlert(alert);
+    setOpenMenuId(null);
+  }
+
   return (
     <div className="lf-alerts-page">
       <section className="lf-alerts-header">
@@ -117,6 +124,7 @@ export default function AlertsPage() {
               <th>Difference</th>
               <th>Status</th>
               <th>Received At</th>
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -128,6 +136,24 @@ export default function AlertsPage() {
                 <td>{formatCurrency(alert.difference)}</td>
                 <td><span className="lf-alert-status">{alert.status || "FAILED"}</span></td>
                 <td>{formatReceivedAt(alert.created_at)}</td>
+                <td className="lf-alert-actions-cell">
+                  <button
+                    className="lf-alert-kebab"
+                    type="button"
+                    aria-label="Open alert actions"
+                    aria-expanded={openMenuId === alert.id}
+                    onClick={() => setOpenMenuId((current) => (current === alert.id ? null : alert.id))}
+                  >
+                    <FiMoreVertical size={16} />
+                  </button>
+                  {openMenuId === alert.id && (
+                    <div className="lf-alert-row-menu">
+                      <button type="button" onClick={() => openDetails(alert)}>
+                        View details
+                      </button>
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -141,8 +167,95 @@ export default function AlertsPage() {
           </div>
         )}
       </section>
+
+      {selectedAlert && (
+        <TransactionDetailModal alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
+      )}
     </div>
   );
+}
+
+function TransactionDetailModal({ alert, onClose }) {
+  const debit = getDebitDetail(alert);
+  const credit = getCreditDetail(alert);
+  const detailRows = [
+    ["Transaction ID", alert.transaction_id || alert.transactionId || alert.id],
+    ["Upload ID", alert.upload_id || alert.uploadId || "-"],
+    ["Entry No", alert.entry_no || "-"],
+    ["Received At", formatReceivedAt(alert.created_at || alert.received_at)],
+    ["Status", alert.status || "FAILED"],
+    ["Difference", formatCurrency(alert.difference)],
+  ];
+
+  return (
+    <div className="lf-alert-detail-overlay" role="presentation" onClick={onClose}>
+      <section
+        className="lf-alert-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="alert-detail-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="lf-alert-detail-header">
+          <div>
+            <h2 id="alert-detail-title">Transaction Detail</h2>
+            <p>{alert.entry_no ? `Entry ${alert.entry_no}` : "Validation alert"}</p>
+          </div>
+          <button className="lf-alert-detail-close" type="button" aria-label="Close details" onClick={onClose}>
+            <FiX size={18} />
+          </button>
+        </header>
+
+        <div className="lf-alert-flow">
+          <FlowCard tone="debit" title="From (Debit)" detail={debit} amountLabel="Debit amount" />
+          <div className="lf-alert-flow-arrow">
+            <FiArrowRight size={22} />
+            <span>Δ {formatCurrency(alert.difference)}</span>
+          </div>
+          <FlowCard tone="credit" title="To (Credit)" detail={credit} amountLabel="Credit amount" />
+        </div>
+
+        <dl className="lf-alert-detail-grid">
+          {detailRows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value || "-"}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+function FlowCard({ tone, title, detail, amountLabel }) {
+  return (
+    <article className={`lf-alert-flow-card lf-alert-flow-card--${tone}`}>
+      <span>{title}</span>
+      <strong>{detail.name}</strong>
+      <p>{detail.code}</p>
+      <div>
+        <small>{amountLabel}</small>
+        <b>{formatCurrency(detail.amount)}</b>
+      </div>
+    </article>
+  );
+}
+
+function getDebitDetail(alert) {
+  return {
+    name: alert.debit_account_name || alert.from_account_name || alert.sub_account || "-",
+    code: alert.debit_account_code || alert.from_account_code || alert.account_code || "-",
+    amount: alert.debit_amount ?? alert.from_amount ?? alert.difference ?? 0,
+  };
+}
+
+function getCreditDetail(alert) {
+  return {
+    name: alert.credit_account_name || alert.to_account_name || alert.credit_sub_account || "-",
+    code: alert.credit_account_code || alert.to_account_code || "-",
+    amount: alert.credit_amount ?? alert.to_amount ?? 0,
+  };
 }
 
 function formatCurrency(value) {

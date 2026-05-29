@@ -14,7 +14,7 @@ from app.core.config import get_settings
 from app.core.security import require_roles
 from app.db.session import AsyncSessionLocal, get_db
 from app.models import AuditAction, Review, ReviewStatus, Submission, TransactionRow, User, UserRole
-from app.schemas import UploadPreview, UploadSummary, UploadVersionRead
+from app.schemas import TransactionRowRead, UploadPreview, UploadSummary, UploadVersionRead
 from app.services.audit import log_action
 from app.services.email import manager_submission_link, send_email
 from app.services.excel_parser import infer_amount, infer_date, infer_text, parse_entry_no, parse_spreadsheet, validate_extension
@@ -387,6 +387,33 @@ async def get_upload(
         preview_rows=[gl_row_to_dict(row) for row in rows],
         version_history=await get_version_history(db, submission),
     )
+
+
+@router.get("/{upload_id}/transactions", response_model=list[TransactionRowRead])
+async def get_upload_transactions(
+    upload_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.employee, UserRole.manager, UserRole.admin)),
+) -> list[TransactionRowRead]:
+    submission = (
+        await db.execute(
+            select(Submission)
+            .options(selectinload(Submission.user))
+            .where(Submission.id == upload_id)
+        )
+    ).scalar_one_or_none()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    verify_upload_access(submission, user)
+
+    rows = (
+        await db.execute(
+            select(TransactionRow)
+            .where(TransactionRow.submission_id == upload_id)
+            .order_by(TransactionRow.date, TransactionRow.entry_group, TransactionRow.entry_line)
+        )
+    ).scalars().all()
+    return [TransactionRowRead(**gl_row_to_dict(row)) for row in rows]
 
 
 async def get_version_history(db: AsyncSession, submission: Submission) -> list[UploadVersionRead]:

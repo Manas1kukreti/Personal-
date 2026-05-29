@@ -1,8 +1,9 @@
 import React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiArchive, FiDownload, FiMessageSquare, FiSearch, FiUploadCloud } from "react-icons/fi";
+import { FiArchive, FiDownload, FiMoreVertical, FiSearch, FiSend, FiUploadCloud, FiX } from "react-icons/fi";
 import { api } from "../api/client.js";
-import CommentThread from "../components/CommentThread.jsx";
+import { useAuth } from "../auth/AuthContext.jsx";
+import { useWebSocket } from "../hooks/useWebSocket.js";
 
 const TABS = [
   { label: "All", value: "" },
@@ -16,8 +17,8 @@ const PAGE_SIZE = 10;
 export default function SubmissionsPage() {
   const reuploadInputRef = useRef(null);
   const selectAllRef = useRef(null);
+  const actionsMenuRef = useRef(null);
   const [uploads, setUploads] = useState([]);
-  const [selectedUpload, setSelectedUpload] = useState(null);
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState(() => new Set());
   const [reuploadTarget, setReuploadTarget] = useState(null);
   const [reuploading, setReuploading] = useState("");
@@ -25,6 +26,9 @@ export default function SubmissionsPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const [commentsSubmission, setCommentsSubmission] = useState(null);
+  const [transactionsSubmission, setTransactionsSubmission] = useState(null);
 
   const loadUploads = useCallback(async () => {
     const response = await api.get("/uploads");
@@ -34,12 +38,6 @@ export default function SubmissionsPage() {
   useEffect(() => {
     loadUploads().catch(() => setUploads([]));
   }, [loadUploads]);
-
-  useEffect(() => {
-    if (!selectedUpload) return;
-    const freshUpload = uploads.find((upload) => upload.id === selectedUpload.id);
-    if (freshUpload) setSelectedUpload(freshUpload);
-  }, [selectedUpload, uploads]);
 
   useEffect(() => {
     const uploadIds = new Set(uploads.map((upload) => upload.id));
@@ -90,6 +88,16 @@ export default function SubmissionsPage() {
     if (!selectAllRef.current) return;
     selectAllRef.current.indeterminate = visibleSelectionCount > 0 && !allVisibleSelected;
   }, [allVisibleSelected, visibleSelectionCount]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    function closeMenu(event) {
+      if (actionsMenuRef.current?.contains(event.target)) return;
+      setOpenMenuId(null);
+    }
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
+  }, [openMenuId]);
 
   function getPageNumbers() {
     const pages = [];
@@ -189,6 +197,16 @@ export default function SubmissionsPage() {
     }
   }
 
+  function openComments(upload, submissionCode) {
+    setCommentsSubmission({ ...upload, submissionCode });
+    setOpenMenuId(null);
+  }
+
+  function openTransactions(upload, submissionCode) {
+    setTransactionsSubmission({ ...upload, submissionCode });
+    setOpenMenuId(null);
+  }
+
   return (
     <div className="lf-submissions-page">
       <input
@@ -199,10 +217,8 @@ export default function SubmissionsPage() {
         onChange={(event) => submitReupload(event.target.files?.[0])}
       />
 
-      {/* ── Title ── */}
       <h1 className="lf-submissions-title">Submissions</h1>
 
-      {/* ── Tabs ── */}
       <div className="lf-submissions-tabs">
         {TABS.map((tab) => (
           <button
@@ -216,7 +232,6 @@ export default function SubmissionsPage() {
         ))}
       </div>
 
-      {/* ── Toolbar ── */}
       <section className="lf-submissions-toolbar">
         <label className="lf-submissions-search">
           <FiSearch size={18} />
@@ -241,7 +256,6 @@ export default function SubmissionsPage() {
 
       {reuploadError && <div className="lf-submissions-error">{reuploadError}</div>}
 
-      {/* ── Table ── */}
       <section className="lf-submissions-table-wrap">
         <table className="lf-submissions-table">
           <thead>
@@ -268,10 +282,11 @@ export default function SubmissionsPage() {
               const parts = inferSubmissionType(upload);
               const timestamp = formatSubmitted(upload.created_at);
               const globalIndex = (safePage - 1) * PAGE_SIZE + index;
+              const submissionCode = formatSubmissionCode(upload, globalIndex);
               return (
                 <tr
                   key={upload.id}
-                  className={selectedUpload?.id === upload.id ? "is-selected" : ""}
+                  className={openMenuId === upload.id ? "is-selected" : ""}
                 >
                   <td className="is-checkbox">
                     <input
@@ -281,7 +296,7 @@ export default function SubmissionsPage() {
                       onChange={() => toggleSubmissionSelection(upload.id)}
                     />
                   </td>
-                  <td className="mono-cell">{formatSubmissionCode(upload, globalIndex)}</td>
+                  <td className="mono-cell">{submissionCode}</td>
                   <td className="lf-submissions-user">{upload.uploader_name || "Unknown User"}</td>
                   <td className="lf-submissions-type">{parts}</td>
                   <td>
@@ -293,13 +308,27 @@ export default function SubmissionsPage() {
                   </td>
                   <td>
                     <div className="lf-submissions-actions">
-                      <button
-                        className="lf-submissions-view"
-                        onClick={() => setSelectedUpload(upload)}
-                        type="button"
-                      >
-                        View
-                      </button>
+                      <div className="lf-submissions-menu-wrap" ref={openMenuId === upload.id ? actionsMenuRef : null}>
+                        <button
+                          className="lf-submissions-kebab"
+                          onClick={() => setOpenMenuId((current) => current === upload.id ? null : upload.id)}
+                          type="button"
+                          aria-label={`Open actions for ${submissionCode}`}
+                          aria-expanded={openMenuId === upload.id}
+                        >
+                          <FiMoreVertical size={17} />
+                        </button>
+                        {openMenuId === upload.id && (
+                          <div className="lf-submissions-row-menu">
+                            <button type="button" onClick={() => openComments(upload, submissionCode)}>
+                              Open comments
+                            </button>
+                            <button type="button" onClick={() => openTransactions(upload, submissionCode)}>
+                              View transactions
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       {upload.status === "reupload_requested" && (
                         <button
                           className="lf-submissions-approve"
@@ -327,7 +356,6 @@ export default function SubmissionsPage() {
           </div>
         )}
 
-        {/* ── Footer: results count + pagination ── */}
         {filtered.length > 0 && (
           <div className="lf-submissions-footer">
             <span className="lf-submissions-count">
@@ -376,30 +404,204 @@ export default function SubmissionsPage() {
         )}
       </section>
 
-      {/* ── Detail panel ── */}
-      {selectedUpload && (
-        <section className="lf-submissions-conversation">
-          <div className="lf-submissions-conversation__head">
-            <div>
-              <h2>{selectedUpload.filename}</h2>
-              <p>
-                {selectedUpload.status} ·{" "}
-                {Number(selectedUpload.total_rows || 0).toLocaleString("en-IN")} rows · v
-                {selectedUpload.version_number || 1}
-              </p>
-            </div>
-            <button
-              className="secondary-button"
-              onClick={() => setSelectedUpload(null)}
-              type="button"
-            >
-              Close
-            </button>
-          </div>
-          <CommentThread submissionId={selectedUpload.id} title="Submission conversation" />
-        </section>
+      {commentsSubmission && (
+        <SubmissionCommentsModal
+          submission={commentsSubmission}
+          onClose={() => setCommentsSubmission(null)}
+        />
+      )}
+
+      {transactionsSubmission && (
+        <SubmissionTransactionsModal
+          submission={transactionsSubmission}
+          onClose={() => setTransactionsSubmission(null)}
+        />
       )}
     </div>
+  );
+}
+
+function SubmissionCommentsModal({ submission, onClose }) {
+  const { user } = useAuth();
+  const [comments, setComments] = useState([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  const loadComments = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.get(`/submissions/${submission.id}/comments`);
+      setComments(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Unable to load comments.");
+    } finally {
+      setLoading(false);
+    }
+  }, [submission.id]);
+
+  useEffect(() => {
+    loadComments();
+  }, [loadComments]);
+
+  useWebSocket("comments", useCallback((event) => {
+    if (event.event !== "new_comment" || event.payload?.submission_id !== submission.id) return;
+    setComments((current) => {
+      if (current.some((comment) => comment.id === event.payload.id)) return current;
+      return [...current, event.payload];
+    });
+  }, [submission.id]));
+
+  const sortedComments = useMemo(
+    () => [...comments].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
+    [comments]
+  );
+
+  async function sendComment(event) {
+    event.preventDefault();
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    setSending(true);
+    setError("");
+    try {
+      const response = await api.post(`/submissions/${submission.id}/comments`, { message: trimmed });
+      setComments((current) => current.some((comment) => comment.id === response.data.id) ? current : [...current, response.data]);
+      setMessage("");
+    } catch (err) {
+      setError(err.response?.data?.detail || "Unable to send comment.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="lf-submissions-modal-backdrop" onClick={onClose} role="presentation">
+      <section className="lf-submissions-modal" role="dialog" aria-modal="true" aria-labelledby="submission-comments-title" onClick={(event) => event.stopPropagation()}>
+        <ModalHeader title="Submission conversation" submission={submission} onClose={onClose} titleId="submission-comments-title" />
+        <div className="lf-submissions-chat-list">
+          {loading && <div className="lf-submissions-modal-empty">Loading comments...</div>}
+          {!loading && sortedComments.map((comment) => {
+            const mine = comment.user_id === user?.id;
+            return (
+              <article className={`lf-submissions-chat-bubble${mine ? " is-mine" : ""}`} key={comment.id}>
+                <div>
+                  <strong>{comment.user_name || "User"}</strong>
+                  <time>{formatModalDate(comment.created_at)}</time>
+                </div>
+                <p>{comment.message}</p>
+              </article>
+            );
+          })}
+          {!loading && !sortedComments.length && (
+            <div className="lf-submissions-modal-empty">No comments yet</div>
+          )}
+        </div>
+        {error && <div className="lf-submissions-modal-error">{error}</div>}
+        <form className="lf-submissions-comment-form" onSubmit={sendComment}>
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder="Write a comment..."
+            maxLength={2000}
+          />
+          <button className="primary-button" type="submit" disabled={sending || !message.trim()}>
+            <FiSend size={16} />
+            {sending ? "Sending..." : "Send"}
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function SubmissionTransactionsModal({ submission, onClose }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTransactions() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await api.get(`/uploads/${submission.id}/transactions`);
+        if (!cancelled) setRows(Array.isArray(response.data) ? response.data : []);
+      } catch (err) {
+        if (!cancelled) setError(err.response?.data?.detail || "Unable to load transactions.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadTransactions();
+    return () => {
+      cancelled = true;
+    };
+  }, [submission.id]);
+
+  const transactionRows = useMemo(() => buildTransactionRows(rows, submission.status), [rows, submission.status]);
+
+  return (
+    <div className="lf-submissions-modal-backdrop" onClick={onClose} role="presentation">
+      <section className="lf-submissions-modal lf-submissions-modal--wide" role="dialog" aria-modal="true" aria-labelledby="submission-transactions-title" onClick={(event) => event.stopPropagation()}>
+        <ModalHeader title="Submission transactions" submission={submission} onClose={onClose} titleId="submission-transactions-title" />
+        <div className="lf-submissions-sheet-wrap">
+          <table className="lf-submissions-sheet-table">
+            <thead>
+              <tr>
+                <th>Entry No</th>
+                <th>Transaction ID</th>
+                <th>Account Code</th>
+                <th>Sub Account</th>
+                <th>From Account (debit source)</th>
+                <th>To Account (credit destination)</th>
+                <th>Debit Amount</th>
+                <th>Credit Amount</th>
+                <th>Difference</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactionRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.entryNo}</td>
+                  <td>{row.transactionId}</td>
+                  <td>{row.accountCode}</td>
+                  <td>{row.subAccount}</td>
+                  <td>{row.fromAccount}</td>
+                  <td>{row.toAccount}</td>
+                  <td>{formatCurrency(row.debitAmount)}</td>
+                  <td>{formatCurrency(row.creditAmount)}</td>
+                  <td>{formatCurrency(row.difference)}</td>
+                  <td className={row.failed ? "is-failed" : "is-approved"}>{row.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {loading && <div className="lf-submissions-modal-empty">Loading transactions...</div>}
+          {!loading && error && <div className="lf-submissions-modal-error">{error}</div>}
+          {!loading && !error && !transactionRows.length && (
+            <div className="lf-submissions-modal-empty">No transactions found</div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ModalHeader({ title, submission, onClose, titleId }) {
+  return (
+    <header className="lf-submissions-modal-header">
+      <div>
+        <h2 id={titleId}>{title}</h2>
+        <span>{submission.submissionCode}</span>
+      </div>
+      <button type="button" onClick={onClose} aria-label="Close modal">
+        <FiX size={18} />
+      </button>
+    </header>
   );
 }
 
@@ -424,6 +626,56 @@ function formatSubmitted(value) {
     date: date.toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric" }),
     time: date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }),
   };
+}
+
+function formatModalDate(value) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatCurrency(value) {
+  return Number(value || 0).toLocaleString("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  });
+}
+
+function buildTransactionRows(rows, submissionStatus) {
+  const groups = rows.reduce((map, row) => {
+    const key = row.entry_group ?? row.entry_no ?? row.id;
+    const current = map.get(key) || [];
+    current.push(row);
+    map.set(key, current);
+    return map;
+  }, new Map());
+
+  return rows.map((row) => {
+    const groupRows = groups.get(row.entry_group ?? row.entry_no ?? row.id) || [row];
+    const debitRow = groupRows.find((item) => Number(item.debit_amount || 0) > 0);
+    const creditRow = groupRows.find((item) => Number(item.credit_amount || 0) > 0);
+    const debitAmount = Number(row.debit_amount || 0);
+    const creditAmount = Number(row.credit_amount || 0);
+    const groupDebit = groupRows.reduce((sum, item) => sum + Number(item.debit_amount || 0), 0);
+    const groupCredit = groupRows.reduce((sum, item) => sum + Number(item.credit_amount || 0), 0);
+    const difference = groupDebit - groupCredit;
+    const failed = String(submissionStatus || "").toLowerCase() === "declined" || Math.abs(difference) > 0.009;
+
+    return {
+      id: row.id,
+      entryNo: `${row.entry_group ?? "-"}${row.entry_line ? `.${row.entry_line}` : ""}`,
+      transactionId: `${row.submission_id || row.upload_id || "-"}:${row.entry_group ?? "-"}`,
+      accountCode: row.account_code || "-",
+      subAccount: row.sub_account || "-",
+      fromAccount: debitRow ? `${debitRow.sub_account} (${debitRow.account_code})` : "-",
+      toAccount: creditRow ? `${creditRow.sub_account} (${creditRow.account_code})` : "-",
+      debitAmount,
+      creditAmount,
+      difference,
+      failed,
+      status: failed ? "Failed" : "Approved",
+    };
+  });
 }
 
 function StatusPill({ status }) {
