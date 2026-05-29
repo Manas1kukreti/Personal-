@@ -4,49 +4,104 @@ This file is a compact briefing for another LLM or coding agent working in this 
 
 ## Project Summary
 
-LedgerFlow Analytics is a full-stack financial transaction upload, validation, approval, discussion, re-upload, and analytics platform.
+**LedgerFlow Analytics** is an enterprise financial transaction management platform enabling employees to upload general-ledger data, managers to review and approve submissions with real-time collaboration, comprehensive audit logging, intelligent alert detection, and role-based analytics dashboards. The system provides end-to-end transaction lifecycle management with full compliance and auditability.
 
-Employees upload `.xlsx` or `.csv` files that match a fixed financial transaction schema. The backend validates the file, stores typed transaction rows in PostgreSQL, and creates a pending submission. Assigned managers review submissions, discuss corrections in a submission thread, approve, decline, or request re-upload. Employees can re-upload corrected versions when requested. Admin users assign employees to managers. The frontend shows role-specific dashboards and receives live refresh events over WebSockets.
+Employees upload `.xlsx` or `.csv` files that match a fixed general-ledger transaction schema. The backend validates the file, stores typed transaction rows in PostgreSQL, and creates a pending submission. Assigned managers review submissions, discuss corrections in a submission thread, approve, decline, or request re-upload. Employees can re-upload corrected versions when requested. Admin users assign employees to managers, track system audit logs, and manage alerts. The frontend shows role-specific dashboards and receives live refresh events over WebSockets.
 
 ## Tech Stack
 
-- Frontend: React 19, Vite, React Router, Axios, Recharts, React Icons, Tailwind CSS.
-- Backend: FastAPI, SQLAlchemy async, Pydantic, Pandas, OpenPyXL, Uvicorn, WebSockets.
-- Database: PostgreSQL 16 with Alembic migrations.
-- Local orchestration: Docker Compose.
+- **Frontend**: React 19, Vite, React Router, Axios, Recharts, React Icons, Tailwind CSS
+- **Backend**: FastAPI, SQLAlchemy async, Pydantic, Pandas, OpenPyXL, Uvicorn, WebSockets
+- **Database**: PostgreSQL 16 with Alembic migrations
+- **Orchestration**: Docker Compose for local development, Railway/Docker for production
+
+## Platform Pages & Features
+
+### Public Pages
+- **Landing Page** (`/`) — Hero section with "Get Started" CTA, auto-redirects authenticated users to role-specific home
+
+### Authenticated Pages (All Roles)
+- **Dashboard** (`/dashboard`) — KPI cards, analytics charts, upload activity trends, recent transactions
+- **Upload Center** (`/uploads`) — Drag-drop file upload, transaction preview with type filters, validation progress
+- **Submissions** (`/submissions`) — Submission history table with row actions (View Comments, View Transactions, Re-upload)
+- **Alerts** (`/alerts`) — DTCD validation alerts with searchable/filterable UI, transaction enrichment, bulk read actions
+- **Settings** (`/settings`) — Profile name update, password change, session management
+
+### Manager Pages
+- **Manager Dashboard** (`/manager`) — Approval queue (left panel), KPI cards (top-right), review panel with comment thread, action buttons (Approve/Reject/Request Re-upload)
+
+### Admin Pages
+- **Admin Dashboard** (`/admin`) — Manager/employee list, drag-drop assignment UI, reassignment workflow
+- **Audit Page** (`/audit`) — Searchable audit log with action type filters, user actor tracking, timestamp and detail view
 
 ## Important Paths
 
-- `frontend/src/main.jsx`: React route tree and role-based home redirect.
-- `frontend/src/api/client.js`: Axios API client, bearer token interceptor, refresh-token retry, WebSocket URL helper.
-- `frontend/src/auth/AuthContext.jsx`: login, register, logout, session validation.
-- `frontend/src/auth/ProtectedRoute.jsx`: frontend auth and role guard.
-- `frontend/src/shell/AppShell.jsx`: authenticated app shell, topbar, collapsible sidebar.
-- `frontend/src/components/CommentThread.jsx`: reusable submission discussion thread with WebSocket updates.
-- `frontend/src/components/DataTable.jsx`: reusable preview/detail table.
-- `frontend/src/components/ProgressMilestones.jsx`: submission progress/decision visual.
-- `frontend/src/pages/AuthPage.jsx`: login/register UI; preserves full redirect path including query strings for email links.
-- `frontend/src/pages/UploadCenter.jsx`: employee upload flow and transaction preview.
-- `frontend/src/pages/SubmissionsPage.jsx`: employee upload history, comment thread access, and re-upload button.
-- `frontend/src/pages/ManagerDashboard.jsx`: manager review queue, token deep links, comment thread, review actions, version tabs.
-- `frontend/src/pages/AdminDashboard.jsx`: admin manager/employee assignment UI.
-- `frontend/src/pages/Dashboard.jsx`: KPI and analytics dashboard.
-- `backend/app/main.py`: FastAPI app, CORS, routers, startup seeded accounts.
-- `backend/app/api/auth.py`: registration, login, refresh, logout, current user, account settings.
-- `backend/app/api/uploads.py`: upload parsing, re-upload flow, row persistence, listing, preview, version history, access checks.
-- `backend/app/api/comments.py`: submission comment APIs, WebSocket broadcast, comment email notification.
-- `backend/app/api/approvals.py`: manager review actions and review-link token verification.
-- `backend/app/api/admin.py`: admin manager list, employee list, assign, reassign.
-- `backend/app/api/agent.py`: API surface for a posting/upload agent.
-- `backend/app/api/analytics.py`: KPI aggregation.
-- `backend/app/services/excel_parser.py`: spreadsheet parsing and transaction validation.
-- `backend/app/services/email.py`: optional SMTP notifications and manager review links.
-- `backend/app/services/websocket_manager.py`: in-memory WebSocket channel broadcaster.
-- `backend/app/models.py`: SQLAlchemy models and enums.
-- `backend/app/schemas.py`: Pydantic request/response contracts.
-- `backend/alembic/versions/`: database migrations.
-- `docs/ARCHITECTURE.md`: detailed architecture reference.
-- `docs/RAILWAY_DEPLOYMENT.md`: deployment notes.
+### Frontend
+- `frontend/src/main.jsx` — React Router tree, role-based home redirect
+- `frontend/src/auth/AuthContext.jsx` — Login, register, logout, token refresh
+- `frontend/src/auth/ProtectedRoute.jsx` — Role-based route guard
+- `frontend/src/shell/AppShell.jsx` — Authenticated app layout with topbar/sidebar
+- `frontend/src/pages/AuthPage.jsx` — Login/Register UI with email + password, role selection
+- `frontend/src/pages/LandingPage.jsx` — Hero landing with authenticated user redirect
+- `frontend/src/pages/UploadCenter.jsx` — File upload, progress tracking, transaction preview with type filters
+- `frontend/src/pages/SubmissionsPage.jsx` — Submission history table with kebab actions (comments modal, transactions modal, re-upload)
+- `frontend/src/pages/ManagerDashboard.jsx` — Approval queue, review panel, comment thread, manager actions
+- `frontend/src/pages/Dashboard.jsx` — KPI cards, charts, analytics
+- `frontend/src/pages/AlertsPage.jsx` — Alert list with search/filter, enriched transaction details, bulk read
+- `frontend/src/pages/SettingsPage.jsx` — Profile and password management
+- `frontend/src/pages/AdminDashboard.jsx` — User assignment/reassignment UI
+- `frontend/src/pages/AuditPage.jsx` — Searchable, filterable audit log
+- `frontend/src/components/CommentThread.jsx` — Reusable submission discussion thread with WebSocket updates
+- `frontend/src/components/DataTable.jsx` — Reusable spreadsheet-style table component
+- `frontend/src/components/ProgressMilestones.jsx` — Visual submission status/decision indicator
+- `frontend/src/api/client.js` — Axios API client, bearer token interceptor, refresh-token retry, WebSocket URL helper
+
+### Backend
+- `backend/app/main.py` — FastAPI app, CORS, routers, startup seeded accounts, health endpoint
+- `backend/app/api/auth.py` — Registration, login, refresh, logout, current user, account settings, password change
+- `backend/app/api/uploads.py` — Upload parsing, re-upload flow, row persistence, listing, preview, version history, access checks
+- `backend/app/api/comments.py` — Submission comment APIs, WebSocket broadcast, email notification
+- `backend/app/api/approvals.py` — Manager review actions (approve/reject/request-reupload), review-link token verification
+- `backend/app/api/alerts.py` — DTCD validation alerts, alert creation, read/mark-all, optional transaction enrichment
+- `backend/app/api/admin.py` — Admin manager list, employee list, assign, reassign endpoints
+- `backend/app/api/audit.py` — Audit log retrieval and filtering
+- `backend/app/api/agent.py` — API surface for posting/upload agent interactions
+- `backend/app/api/analytics.py` — KPI aggregation with date/status filtering, role scoping
+- `backend/app/api/websockets.py` — WebSocket connection manager, channel broadcasting
+- `backend/app/services/excel_parser.py` — Spreadsheet parsing, column name normalization, transaction validation
+- `backend/app/services/email.py` — SMTP notifications and manager review links
+- `backend/app/services/websocket_manager.py` — In-memory WebSocket channel broadcaster
+- `backend/app/models.py` — SQLAlchemy models, enums, relationships
+- `backend/app/schemas.py` — Pydantic request/response contracts
+- `backend/alembic/versions/` — Database migrations
+
+### Documentation
+- `docs/ARCHITECTURE.md` — Detailed system design, data model, endpoints, WebSocket channels, deployment notes
+- `docs/RAILWAY_DEPLOYMENT.md` — Production deployment instructions
+- `DESIGN_SYSTEM.md` — UI design tokens, colors, typography, component patterns
+- `DESIGN_QUICK_REFERENCE.md` — Quick-reference guide for UI development
+
+
+## Current Features (Latest)
+
+### Frontend
+- **Landing Page** — Public hero with CTA, auto-redirects authenticated users
+- **Upload Center** — Drag-drop upload with real-time progress, transaction preview with type filters
+- **Submissions Page** — History table with kebab actions (comments modal, transactions modal, re-upload button)
+- **Alerts Page** — DTCD validation alerts, searchable/filterable UI, transaction enrichment modals, bulk read actions
+- **Manager Dashboard** — Approval queue left panel, KPI right panel, comment thread, review actions
+- **Admin Dashboard** — Manager/employee assignment with drag-drop workflow
+- **Audit Page** — Searchable audit log with user/action type filters, timestamp tracking
+- **Settings Page** — Profile name update, password change, session management
+- **Real-time Updates** — WebSocket-driven comment threads, approval notifications, KPI refreshes
+
+### Backend
+- **Audit API** — Immutable log of all actions (uploads, approvals, comments, assignments, logins)
+- **Alerts API** — DTCD validation, alert creation, read/mark-all, transaction enrichment (with fallback)
+- **Enhanced Comments** — WebSocket broadcast on new comments, email notifications
+- **Role Scoping** — Employees see own data, managers see assigned team data, admins see all
+- **Version History** — Full re-upload chain tracking with parent_submission_id
+- **Token Verification** — Manager review link validation with session checks
 
 ## Local Development
 
@@ -113,15 +168,34 @@ Key variables:
 
 Production validation rejects unsafe default secrets, localhost database URLs, localhost CORS origins, weak default admin passwords, and partially configured agent credentials.
 
-## Roles And Permissions
+## Role Permissions
 
-- `employee`: can register/login, upload files, view own uploads, comment on own submissions, re-upload when requested, and view scoped analytics.
-- `manager`: can register/login, view assigned employee uploads, comment on assigned submissions, approve/decline/request re-upload, and view scoped analytics.
-- `admin`: seeded by backend startup, can assign/reassign employees to managers and view all uploads/analytics.
+### Employee
+- Register/login with `employee` role
+- Upload `.xlsx` or `.csv` files
+- View own submissions and transaction preview
+- Comment on own submissions, receive manager feedback
+- Re-upload when manager requests
+- View personal analytics and KPI data
+- View personal transaction history
 
-Public registration only accepts `employee` or `manager`. Admin users are created from environment-backed startup seeding.
+### Manager
+- Register/login with `manager` role
+- View assigned employee submissions via dashboard
+- Review submissions with approval queue
+- Comment on assigned submissions with thread discussion
+- Approve, reject, or request re-upload
+- Receive email notifications on new submissions (SMTP enabled)
+- View assigned team analytics and KPI data
+- Accept token-based review links for deep-linking from emails
 
-Manager review access is assignment-scoped: a manager can only review/comment on submissions where `submission.user.manager_id == manager.id`.
+### Admin
+- Seeded via `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
+- Assign employees to managers (one manager per employee)
+- Reassign employees to different managers
+- View all uploads, submissions, transactions, and analytics
+- View system-wide audit log with user/action filtering
+- Manage user access and role permissions
 
 ## Auth And Deep-Link Notes
 
@@ -137,106 +211,92 @@ The frontend preserves query strings through login. When a manager opens a token
 
 ## Data Model
 
-Core tables:
+### Core Tables
+- `users` — Full name, email, hashed password, role (employee/manager/admin), optional manager_id
+- `refresh_tokens` — Hashed refresh tokens for cookie-based token refresh
+- `submissions` — Upload metadata, file path, original filename, version_number, optional parent_submission_id, review_status
+- `submission_comments` — Discussion thread entries with submission_id, user_id, message, timestamp
+- `reviews` — Manager decision per submission (approve/reject/reupload_requested), timestamp
+- `transaction_rows` — Parsed GL transaction records: entry_no, account_code, sub_account, debit/credit amounts, status, timestamp
+- `alerts` — DTCD validation failures: entry_no, account_code, difference, status, read_at, optional transaction_detail enrichment
+- `audit_logs` — Immutable log: user_id, action, target_type, target_id, detail, timestamp
 
-- `users`: full name, email, hashed password, role, optional `manager_id`.
-- `refresh_tokens`: hashed refresh tokens for cookie-based access-token refresh.
-- `submissions`: upload metadata, file path, original filename, `version_number`, optional `parent_submission_id`, review status.
-- `submission_comments`: discussion thread entries with `submission_id`, `user_id`, message, and timestamp.
-- `reviews`: one manager decision per submission. Review feedback now lives in `submission_comments`; `reviews.comment` may be null.
-- `transaction_rows`: normalized financial transaction records linked to submissions.
+### Versioning
+- Original upload: `version_number = 1`, `parent_submission_id = null`
+- Re-upload: `version_number = max(existing) + 1`, `parent_submission_id = root submission id`
+- Managers can switch between versions in review dashboard
 
-Versioning:
+## Spreadsheet Schema
 
-- Original upload: `version_number = 1`, `parent_submission_id = null`.
-- Re-upload: `version_number = max(existing versions) + 1`, `parent_submission_id = root submission id`.
-- Managers can switch between versions in the review dashboard.
+**Supported formats:** `.xlsx`, `.csv`
 
-## Spreadsheet Contract
+**Required columns (with common aliases normalized):**
+- `date` (aliases: Date, transaction_date)
+- `entry_no` (aliases: Entry No, Entry Number)
+- `account_code` (aliases: Account Code, Code)
+- `sub_account` (aliases: Sub Account, SubAccount)
+- `details` (aliases: Details, Description)
+- `debit_amount` or `credit_amount` (aliases: Debit, Credit, Amount Debit, Amount Credit)
+- `class` (aliases: Class, Classification)
+- `sub_class` (aliases: Sub Class, SubClass)
+- `country` (aliases: Country, Ctry)
+- `region` (aliases: Region, Rgn)
 
-Supported upload types: `.xlsx`, `.csv`.
+**Validation Rules:**
+- Reject empty files, unsupported extensions, oversized files
+- Require all columns; normalize aliases
+- Validate entry_no format (numeric or dotted notation)
+- Each row must have debit XOR credit (not both, not neither)
+- Amounts must be numeric
+- Date must be parsable
 
-Required columns:
+## API Reference
 
-- `customer_name`
-- `account_number`
-- `transaction_id`
-- `transaction_date`
-- `amount`
-- `transaction_type`
-- `merchant_name`
-- `invoice_id`
-- `payment_method`
-- `status`
+**Base URL:** `http://localhost:8000/api`
 
-Accepted enum values:
+### Auth
+- `POST /auth/register` — Register employee/manager
+- `POST /auth/login` — Get JWT token
+- `POST /auth/refresh` — Refresh access token
+- `POST /auth/logout` — Logout
+- `GET /auth/me` — Current user
+- `PATCH /auth/me` — Update profile (name)
+- `POST /auth/change-password` — Change password
 
-- `transaction_type`: `Payment`, `Debit`, `Credit`, `Transfer`, `Refund`
-- `payment_method`: `NEFT`, `UPI`, `Credit Card`, `Debit Card`, `Net Banking`
-- `status`: `Initiated`, `Pending`, `Successful`, `Failed`
+### Uploads
+- `POST /uploads` — Upload file (employee only)
+- `GET /uploads` — List user's submissions
+- `GET /uploads/{upload_id}` — Get submission details
+- `GET /uploads/{upload_id}/transactions` — Get all transaction rows for submission
+- `POST /uploads/{submission_id}/reupload` — Submit re-upload (employee only)
 
-Validation rejects empty files, unsupported extensions, files over `MAX_UPLOAD_SIZE_MB`, missing columns, missing required values, non-positive or non-numeric amounts, unparsable dates, and invalid enum values.
+### Comments
+- `GET /submissions/{submission_id}/comments` — Fetch thread
+- `POST /submissions/{submission_id}/comments` — Post comment
 
-## API Overview
+### Approvals
+- `POST /approvals/approve` — Approve submission (manager only)
+- `POST /approvals/reject` — Reject submission (manager only)
+- `POST /approvals/request-reupload` — Request re-upload (manager only)
+- `GET /approvals/verify-token?token=...` — Verify manager review link
 
-Authentication:
+### Alerts
+- `GET /alerts` — List alerts
+- `POST /alerts` — Create alert
+- `PATCH /alerts/{alert_id}/read` — Mark alert read
+- `PATCH /alerts/read-all` — Mark all alerts read
 
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/refresh`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `PATCH /api/auth/me`
-- `POST /api/auth/change-password`
+### Analytics
+- `GET /analytics/kpis` — KPI data with optional date_from, date_to, status filters
 
-Agent:
+### Audit
+- `GET /audit` — Audit log (admin only)
 
-- `POST /api/agent/login`
-- `POST /api/agent/upload`
-
-Uploads:
-
-- `POST /api/uploads`
-- `POST /api/uploads/{submission_id}/reupload`
-- `GET /api/uploads`
-- `GET /api/uploads/{upload_id}`
-
-Submission comments:
-
-- `GET /api/submissions/{submission_id}/comments`
-- `POST /api/submissions/{submission_id}/comments`
-
-Approvals:
-
-- `GET /api/approvals/verify-token?token=...`
-- `POST /api/approvals/approve`
-- `POST /api/approvals/{upload_id}/approve`
-- `POST /api/approvals/reject`
-- `POST /api/approvals/{upload_id}/reject`
-- `POST /api/approvals/request-reupload`
-- `POST /api/approvals/{upload_id}/request-reupload`
-
-Admin:
-
-- `GET /api/admin/managers`
-- `GET /api/admin/employees`
-- `POST /api/admin/assign`
-- `POST /api/admin/reassign`
-
-Analytics:
-
-- `GET /api/analytics/kpis`
-- `date_from` and `date_to` filter KPI data by `transaction_rows.transaction_date`.
-- `status` filters KPI data by `transaction_rows.status` values: `Initiated`, `Pending`, `Successful`, or `Failed`.
-- KPI status counts are transaction-row counts, not submission review-status counts.
-- `Transaction Initiated` is the umbrella KPI: it equals all scoped transaction rows and all scoped transaction amount. `Pending`, `Successful`, and `Failed` are subsets of that initiated total.
-- `totals.revenue` and `totals.total_amount` are grand totals across all transaction statuses. `totals.cash` and `totals.approved_amount` represent `Successful` transaction amount.
-- Role scoping still comes from submissions/users: employees see their own rows, managers see assigned employees' rows, admins see all rows.
-- Latest upload and latest transactions are intentionally most recent for the role scope and are not narrowed by the KPI date filter.
-
-Health:
-
-- `GET /health`
+### Admin
+- `GET /admin/managers` — List managers (admin only)
+- `GET /admin/employees` — List employees (admin only)
+- `POST /admin/assign` — Assign employee to manager (admin only)
+- `POST /admin/reassign` — Reassign employee (admin only)
 
 ## Important Workflow Rules
 
@@ -266,6 +326,7 @@ Comments:
 - Comments are access-scoped using the same upload visibility rules.
 - Manager and employee comments send best-effort email notifications to the opposite party when SMTP is enabled.
 - New comments broadcast a `new_comment` WebSocket event.
+- `SubmissionsPage.jsx` opens comments in a modal with chat bubbles and a composer; it also opens an Excel-lite transactions modal powered by `GET /api/uploads/{upload_id}/transactions`.
 
 ## WebSockets
 
@@ -287,6 +348,7 @@ Current events include:
 
 - `upload_progress`
 - `upload.complete`
+- `upload.failed`
 - `new_upload`
 - `upload.new`
 - `upload_status`
@@ -306,6 +368,8 @@ The broadcaster is process-local. Multi-instance deployments need a shared bus s
 - When changing upload response shape, update `schemas.py`, `uploads.py`, frontend pages/components, and docs.
 - Raw uploaded files are written to local disk or the Docker `backend_uploads` volume.
 - Parsing runs as a FastAPI background task after the raw file is saved; the submission is `processing` until parsing succeeds or fails.
+- `UploadCenter.jsx` tracks the active upload id in a ref so `upload_progress`, `upload.complete`, and `upload.failed` WebSocket events cannot be missed by a stale React closure or applied to the wrong upload.
+- Alert transaction enrichment must fail soft for legacy/simple `entry_no` values; not every alert entry number has the dotted `group.line` shape.
 - Email sending is best-effort and disabled unless configured.
 - The current WebSocket manager is in memory and single-process only.
 
