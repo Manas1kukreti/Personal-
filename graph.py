@@ -214,11 +214,7 @@ def supervisor_node(state):
 
     print_agent_profile("supervisor")
 
-    return {
-
-        "processing_status":
-        "supervisor_checked"
-    }
+    return {}
 
 
 def supervisor_router(state):
@@ -247,6 +243,10 @@ def supervisor_router(state):
         if retry_count >= get_max_retries():
 
             return "notification"
+
+        return "extract_data"
+
+    if processing_status == "preprocessed":
 
         return "extract_data"
 
