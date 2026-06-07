@@ -134,12 +134,12 @@ def validate_data(
         # ENSURE LIST
         # =================================================
 
-        if not isinstance(parsed, list):
-
+        # If a single JSON object is returned, wrap it in a list for downstream processing
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        elif not isinstance(parsed, list):
             return {
-
                 "status": "invalid",
-
                 "error": "Expected JSON array"
             }
 
@@ -246,6 +246,19 @@ def validate_data(
         ""
     )
 }
+
+            # =================================================
+            # COERCE TO STRING
+            # =================================================
+
+            for key in transformed_transaction:
+                val = transformed_transaction[key]
+                if val not in [None, ""]:
+                    # Convert float integers (e.g. 214.0) to "214", but preserve 2001.1
+                    if isinstance(val, float) and val.is_integer():
+                        transformed_transaction[key] = str(int(val))
+                    else:
+                        transformed_transaction[key] = str(val)
 
             # =================================================
             # PYDANTIC VALIDATION
@@ -465,7 +478,7 @@ def validate_data(
 
                 f"Voucher {voucher_id} "
 
-                f"→ Debit: {total_debit} "
+                f"-> Debit: {total_debit} "
 
                 f"| Credit: {total_credit} "
 

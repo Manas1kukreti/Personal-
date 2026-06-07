@@ -1,64 +1,31 @@
-import os
-import json
+﻿import json
 from pathlib import Path
 
 from dotenv import load_dotenv
-from groq import Groq
+
+from ledgerflow_agent.guardrails import validate_json_array_output
+from ledgerflow_agent.llm import get_groq_client
+from ledgerflow_agent.prompts import get_agent_prompt
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 
-load_dotenv(
-    dotenv_path=Path(__file__).resolve().parent.parent / ".env"
-)
-
-
-# =========================================================
-# CREATE GROQ CLIENT
-# =========================================================
-
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
-
-
-# =========================================================
-# CONVERT ALL VALUES TO STRING
-# =========================================================
 
 def convert_all_to_string(data):
-
     if isinstance(data, list):
-
         for row in data:
-
             for key in row:
-
-                if row[key] is None:
-
-                    row[key] = ""
-
-                else:
-
-                    row[key] = str(row[key])
-
+                row[key] = "" if row[key] is None else str(row[key])
     return data
 
 
-# =========================================================
-# MAIN EXTRACTION FUNCTION
-# =========================================================
 
 def extract_data(email_text):
-
     print("\nEXTRACTING GL DATA...\n")
-
     print("\nSENDING DATA TO GROQ...\n")
 
-    # =====================================================
-    # STRICT GL EXTRACTION PROMPT
-    # =====================================================
-
     prompt = f"""
-You are an expert AI Financial ETL Extraction Engine.
+{get_agent_prompt("extraction")}
 
 Your task is to normalize and structure
 already preprocessed General Ledger data.
@@ -107,20 +74,6 @@ VERY IMPORTANT DATA TYPE RULE
 
 RETURN ALL VALUES AS STRINGS.
 
-Examples:
-
-CORRECT:
-"voucher_number": "1.1"
-
-WRONG:
-"voucher_number": 1.1
-
-CORRECT:
-"account_code": "230"
-
-WRONG:
-"account_code": 230
-
 =====================================================
 PRE-CALCULATED FINANCIAL VALUES
 =====================================================
@@ -145,55 +98,11 @@ IMPORTANT:
 5. Preserve financial values exactly.
 
 =====================================================
-FIELD MAPPING RULES
-=====================================================
-
-voucher_date:
-- voucher_date
-- date
-
-entry_no:
-- voucher_number
-- entryno
-
-sub_account:
-- subaccount
-
-details:
-- particulars
-- details
-
-account_code:
-- account_key
-
-class:
-- account_class
-
-sub_class:
-- account_subclass
-
-country:
-- country
-
-region:
-- region
-
-debit_amount:
-- debit_amount
-
-credit_amount:
-- credit_amount
-
-
-=====================================================
 OUTPUT FIELD RULES
 =====================================================
 
-1. Return ALL original business fields present
-in source data.
-
+1. Return ALL original business fields present in source data.
 2. ALWAYS include these fields if present:
-
 - voucher_number
 - voucher_date
 - particulars
@@ -206,44 +115,15 @@ in source data.
 - country
 - region
 - account_key
-
 3. DO NOT create fake values.
-
 4. DO NOT omit account hierarchy fields.
-
 5. Preserve all financial values exactly.
-
-6. Preserve debit_amount and credit_amount exactly.
-
-7. Preserve account_class exactly.
-
-8. Preserve account_subclass exactly.
-
-9. Preserve account hierarchy exactly.
 
 =====================================================
 RETURN FORMAT
 =====================================================
 
 Return ONLY valid JSON array.
-
-Example:
-
-[
-  {{
-    "entry_no": "1.1",
-    "voucher_date": "2025-01-01",
-    "sub_account": "Cash at Bank",
-    "details": "Cash Sales",
-    "account_code": "10",
-    "class": "Assets",
-    "sub_class": "Current Assets",
-    "country": "India",
-    "region": "Asia",
-    "debit_amount": "5000",
-    "credit_amount": ""
-  }}
-]
 
 =====================================================
 INPUT DATA
@@ -253,98 +133,26 @@ INPUT DATA
 """
 
     try:
-
-        # =================================================
-        # GROQ API CALL
-        # =================================================
-
-        response = client.chat.completions.create(
-
+        response = get_groq_client().chat.completions.create(
             model="llama-3.3-70b-versatile",
-
             messages=[
-
-                {
-                    "role": "system",
-
-                    "content": (
-                        "You are a strict JSON "
-                        "financial extraction engine."
-                    )
-                },
-
-                {
-                    "role": "user",
-
-                    "content": prompt
-                }
+                {"role": "system", "content": get_agent_prompt("extraction")},
+                {"role": "user", "content": prompt},
             ],
-
             temperature=0,
-
-            max_tokens=4000
+            max_tokens=4000,
         )
 
-        # =================================================
-        # EXTRACT OUTPUT
-        # =================================================
-
-        output = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
-
-        # =================================================
-        # CLEAN OUTPUT
-        # =================================================
-
-        output = output.strip()
-
-        output = output.replace(
-            "```json",
-            ""
-        )
-
-        output = output.replace(
-            "```",
-            ""
-        ).strip()
-
-        # =================================================
-        # FORCE STRING CONVERSION
-        # =================================================
-
-        parsed_output = json.loads(output)
-
-        parsed_output = convert_all_to_string(
-            parsed_output
-        )
-
-        output = json.dumps(
-            parsed_output,
-            indent=4
-        )
-
-        # =================================================
-        # PRINT RESPONSE
-        # =================================================
+        output = response.choices[0].message.content.strip()
+        output = output.replace("```json", "").replace("```", "").strip()
+        parsed_output = validate_json_array_output(output, "Extraction Agent")
+        parsed_output = convert_all_to_string(parsed_output)
+        output = json.dumps(parsed_output, indent=4)
 
         print("\nGROQ RESPONSE:\n")
-
         print(output)
-
         return output
-
-    # =====================================================
-    # ERROR HANDLING
-    # =====================================================
-
     except Exception as e:
-
         print("\nGROQ ERROR:\n")
-
         print(e)
-
         return "LLM FAILED"

@@ -1,1 +1,31 @@
+# Environments
 .env
+venv/
+env/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Project Specific Output / Scratch
+scratch/
+attachments/
+verified_data.json
+verified_data.xlsx
+
+# Agent Memory
+ledgerflow_agent/runtime_memory.json
+ledgerflow_agent/memory_archive.jsonl
+
+# Logs
+*.log

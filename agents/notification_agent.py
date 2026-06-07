@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 
 from email.mime.text import MIMEText
 
-from groq import Groq
+from ledgerflow_agent.guardrails import GuardrailViolation, require_env, safe_error_message
+from ledgerflow_agent.llm import get_groq_client
+from ledgerflow_agent.prompts import get_agent_prompt
 
 load_dotenv(
     dotenv_path=Path(__file__).resolve().parent.parent / ".env"
@@ -19,39 +21,33 @@ load_dotenv(
 # IMPORT UI ALERT TOOL
 # =========================================================
 
-
-
-
-# =========================================================
-# GROQ CLIENT
-# =========================================================
-
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
-)
+from agents.ui_agent import login_tool
+from tools.pushing_validation_alert_tool import push_validation_alert_tool
 
 
 # =========================================================
 # MANAGER EMAIL
 # =========================================================
 
-MANAGER_EMAIL = "virenkhapra123@gmail.com"
+MANAGER_EMAIL_ENV = "LEDGERFLOW_MANAGER_EMAIL"
 
 
 # =========================================================
 # SENDER EMAIL
 # =========================================================
 
-SENDER_EMAIL = "testpurpose917@gmail.com"
+SENDER_EMAIL_ENV = "LEDGERFLOW_SENDER_EMAIL"
 
 
 # =========================================================
 # APP PASSWORD
 # =========================================================
 
-SENDER_PASSWORD = os.getenv(
-    "EMAIL_APP_PASSWORD"
-)
+SENDER_PASSWORD_ENV = "LEDGERFLOW_SENDER_EMAIL_APP_PASSWORD"
+
+SMTP_HOST_ENV = "LEDGERFLOW_SMTP_HOST"
+
+SMTP_PORT_ENV = "LEDGERFLOW_SMTP_PORT"
 
 
 # =========================================================
@@ -146,14 +142,14 @@ def send_failure_notification(validation_result):
                 if failed_field == "amount":
 
                     readable_error = (
-                        f"• Row {row_number}: "
+                        f"â€¢ Row {row_number}: "
                         f"Amount field is empty."
                     )
 
                 elif failed_field == "customer_name":
 
                     readable_error = (
-                        f"• Row {row_number}: "
+                        f"â€¢ Row {row_number}: "
                         f"Customer name is missing "
                         f"or invalid."
                     )
@@ -161,14 +157,14 @@ def send_failure_notification(validation_result):
                 elif failed_field == "merchant_name":
 
                     readable_error = (
-                        f"• Row {row_number}: "
+                        f"â€¢ Row {row_number}: "
                         f"Merchant name is invalid."
                     )
 
                 elif failed_field == "transaction_id":
 
                     readable_error = (
-                        f"• Row {row_number}: "
+                        f"â€¢ Row {row_number}: "
                         f"Transaction ID format "
                         f"is invalid."
                     )
@@ -207,13 +203,23 @@ def send_failure_notification(validation_result):
                     token = login_tool()
 
                     # =============================================
+                    # CREATE ALERT PAYLOAD
+                    # =============================================
+
+                    alert_payload = {
+                        "Entry no": entry_no,
+                        "Account code": account_code,
+                        "Sub Account": sub_account,
+                        "difference": difference,
+                        "status": "FAILED"
+                    }
+
+                    # =============================================
                     # PUSH ALERT TO UI
                     # =============================================
 
                     push_validation_alert_tool(
-
                         token,
-
                         alert_payload
                     )
 
@@ -222,11 +228,11 @@ def send_failure_notification(validation_result):
                     # =============================================
 
                     readable_error = (
-                        f"• DTCD VALIDATION FAILED\n"
+                        f"â€¢ DTCD VALIDATION FAILED\n"
                         f"  Entry No      : {entry_no}\n"
                         f"  Account Code  : {account_code}\n"
                         f"  Sub Account   : {sub_account}\n"
-                        f"  Difference    : ₹{difference}"
+                        f"  Difference    : â‚¹{difference}"
                     )
 
                 # =================================================
@@ -236,7 +242,7 @@ def send_failure_notification(validation_result):
                 else:
 
                     readable_error = (
-                        f"• Row {row_number}: "
+                        f"â€¢ Row {row_number}: "
                         f"Issue found in "
                         f"'{failed_field}' field."
                     )
@@ -254,7 +260,7 @@ def send_failure_notification(validation_result):
         # =====================================================
 
         prompt = f"""
-You are an AI Notification Agent.
+{get_agent_prompt("notification")}
 
 Generate a professional email for an admin.
 
@@ -291,11 +297,15 @@ BODY:
         # SEND TO GROQ
         # =====================================================
 
-        response = client.chat.completions.create(
+        response = get_groq_client().chat.completions.create(
 
             model="llama-3.3-70b-versatile",
 
             messages=[
+                {
+                    "role": "system",
+                    "content": get_agent_prompt("notification")
+                },
                 {
                     "role": "user",
                     "content": prompt
@@ -346,13 +356,28 @@ BODY:
         # CREATE EMAIL
         # =====================================================
 
+        sender_email = os.getenv(SENDER_EMAIL_ENV) or os.getenv("EMAIL_USER")
+        if not sender_email:
+            raise GuardrailViolation(f"Missing required environment variable: {SENDER_EMAIL_ENV} and EMAIL_USER")
+
+        manager_email = os.getenv(MANAGER_EMAIL_ENV) or sender_email
+        if not manager_email:
+            raise GuardrailViolation(f"Missing required environment variable: {MANAGER_EMAIL_ENV}")
+
+        sender_password = os.getenv(SENDER_PASSWORD_ENV) or os.getenv("EMAIL_PASS")
+        if not sender_password:
+            raise GuardrailViolation(f"Missing required environment variable: {SENDER_PASSWORD_ENV} and EMAIL_PASS")
+
+        smtp_host = os.getenv(SMTP_HOST_ENV) or "smtp.gmail.com"
+        smtp_port = int(os.getenv(SMTP_PORT_ENV) or "587")
+
         msg = MIMEText(body)
 
         msg["Subject"] = subject
 
-        msg["From"] = SENDER_EMAIL
+        msg["From"] = sender_email
 
-        msg["To"] = MANAGER_EMAIL
+        msg["To"] = manager_email
 
         # =====================================================
         # EMAIL RETRY
@@ -381,8 +406,8 @@ BODY:
                 # =================================================
 
                 server = smtplib.SMTP(
-                    "smtp.gmail.com",
-                    587,
+                    smtp_host,
+                    smtp_port,
                     timeout=30
                 )
 
@@ -393,8 +418,8 @@ BODY:
                 # =================================================
 
                 server.login(
-                    SENDER_EMAIL,
-                    SENDER_PASSWORD
+                    sender_email,
+                    sender_password
                 )
 
                 # =================================================
@@ -466,7 +491,7 @@ BODY:
 
                 "status": "notification_failed",
 
-                "error": str(last_error)
+                "error": safe_error_message(last_error)
             }
 
     # =========================================================
@@ -485,5 +510,9 @@ BODY:
 
             "status": "notification_failed",
 
-            "error": str(e)
+            "error": safe_error_message(e)
         }
+
+
+
+

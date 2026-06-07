@@ -1,14 +1,17 @@
-print(" MAIN FILE STARTED")
+from __future__ import annotations
 
-from graph import app
+import json
 
-print(" GRAPH IMPORTED SUCCESSFULLY")
+from ledgerflow_agent import run_ledgerflow_agent_dynamic
 
-result = app.invoke({
-    "retry_count": 0
-})
 
-print(" GRAPH EXECUTION FINISHED")
+def main() -> None:
+    result = run_ledgerflow_agent_dynamic({"retry_count": 0})
+    final_output = result.get("final_output", result)
 
-print("\n FINAL OUTPUT:\n")
-print(result)
+    print("\nLEDGERFLOW AGENT FINISHED\n")
+    print(json.dumps(final_output, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    main()

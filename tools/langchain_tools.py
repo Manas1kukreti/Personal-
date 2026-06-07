@@ -1,14 +1,20 @@
 try:
-
     from langchain.tools import Tool
-
 except ImportError:
-
     from langchain_core.tools import Tool
 
-from import_paths import ensure_project_paths
+try:
+    from langchain.tools import tool
+except ImportError:
+    from langchain_core.tools import tool
 
-ensure_project_paths()
+try:
+    from langchain.tools import StructuredTool
+except ImportError:
+    from langchain_core.tools import StructuredTool
+
+from typing import Any
+from pydantic import BaseModel
 
 # =========================================================
 # IMPORT CORE AGENTS
@@ -23,80 +29,89 @@ from agents.ui_agent import push_to_ui
 # IMPORT PREPROCESSING TOOLS
 # =========================================================
 
-from excel_reader_tool import read_excel_tool
-from limit_tool import limit_rows_tool
-from field_mapper_tool import field_mapper_tool
-from text_cleaner_tool import clean_dataframe_tool
-from relation_mapper_tool import relation_mapper_tool
-from financial_logic_tool import financial_logic_tool
-from pushing_validation_alert_tool import  push_validation_alert_tool
+from tools.excel_reader_tool import read_excel_tool
+from tools.limit_tool import limit_rows_tool
+from tools.field_mapper_tool import field_mapper_tool
+from tools.text_cleaner_tool import clean_dataframe_tool
+from tools.relation_mapper_tool import relation_mapper_tool
+from tools.financial_logic_tool import financial_logic_tool
+from tools.pushing_validation_alert_tool import push_validation_alert_tool
 
 
 # =========================================================
 # TOOL 1 → EMAIL TOOL
 # =========================================================
 
-email_tool = Tool(
+@tool
+def email_extraction_tool(query: str = "") -> str:
+    """Fetches latest financial email and extracts raw body text and attachments."""
+    return get_email_text()
 
-    name="Email Extraction Tool",
-
-    func=get_email_text,
- 
-    description=(
-        "Fetches latest financial email "
-        "and extracts raw body text and attachments."
-    )
-)
+# Keep legacy alias for ALL_TOOLS list
+email_tool = email_extraction_tool
 
 
 # =========================================================
 # TOOL 2 → LLM EXTRACTION TOOL
 # =========================================================
 
-def llm_tool_wrapper(text):
-
+@tool
+def financial_data_extractor(text: str) -> str:
+    """Extracts structured financial transactions from raw email or Excel text using LLM."""
     return extract_data(text)
 
-
-llm_tool = Tool(
-
-    name="Financial Data Extractor",
-
-    func=llm_tool_wrapper,
-
-    description=(
-        "Extracts structured financial "
-        "transactions from raw email text "
-        "using LLM."
-    )
-)
+llm_tool = financial_data_extractor
 
 
 # =========================================================
 # TOOL 3 → VALIDATOR TOOL
 # =========================================================
 
-def validator_tool_wrapper(email_text, extracted_data):
-
-    return validate_data(
-
-        email_text,
-
-        extracted_data
-    )
+class _ValidatorInput(BaseModel):
+    """Input schema for validator_tool — accepts string or object from Groq."""
+    json_data: Any
 
 
-validator_tool = Tool(
+def _validator_fn(json_data: Any) -> str:
+    """
+    Validates extracted financial JSON.
 
-    name="Validator Tool",
+    Accepts:
+      (a) A JSON string  — bare array or envelope {"email_text": ..., "extracted_data": ...}
+      (b) A pre-parsed dict/list (Groq sends the object directly after the schema fix).
+    """
+    import json as _json
 
-    func=validator_tool_wrapper,
+    email_text = ""
 
+    # Normalise: if it's already a Python object, use it; otherwise parse the string.
+    if isinstance(json_data, (dict, list)):
+        payload = json_data
+    else:
+        try:
+            payload = _json.loads(json_data)
+        except (_json.JSONDecodeError, TypeError):
+            return validate_data("", str(json_data))
+
+    if isinstance(payload, dict):
+        email_text = payload.get("email_text", "")
+        extracted_data = payload.get("extracted_data", payload)
+        if not isinstance(extracted_data, str):
+            extracted_data = _json.dumps(extracted_data)
+    else:
+        extracted_data = _json.dumps(payload) if not isinstance(payload, str) else payload
+
+    return validate_data(email_text, extracted_data)
+
+
+validator_tool = StructuredTool.from_function(
+    func=_validator_fn,
+    name="validator_tool",
     description=(
-        "Validates extracted financial JSON "
-        "using schema validation and "
-        "financial business rules."
-    )
+        "Validates extracted financial JSON using schema validation and financial business rules. "
+        "Pass the extracted_data as a JSON array or an envelope object with email_text and extracted_data keys."
+    ),
+    args_schema=_ValidatorInput,
 )
 
 
@@ -106,7 +121,7 @@ validator_tool = Tool(
 
 ui_tool = Tool(
 
-    name="UI Push Tool",
+    name="ui_push_tool",
 
     func=push_to_ui,
 
@@ -123,7 +138,7 @@ ui_tool = Tool(
 
 excel_reader_tool = Tool(
 
-    name="Excel Reader Tool",
+    name="excel_reader_tool",
 
     func=read_excel_tool,
 
@@ -140,7 +155,7 @@ excel_reader_tool = Tool(
 
 limit_tool = Tool(
 
-    name="Limit Rows Tool",
+    name="limit_rows_tool",
 
     func=limit_rows_tool,
 
@@ -157,7 +172,7 @@ limit_tool = Tool(
 
 field_mapping_tool = Tool(
 
-    name="Field Mapper Tool",
+    name="field_mapper_tool",
 
     func=field_mapper_tool,
 
@@ -174,7 +189,7 @@ field_mapping_tool = Tool(
 
 text_cleaner_tool = Tool(
 
-    name="Text Cleaner Tool",
+    name="text_cleaner_tool",
 
     func=clean_dataframe_tool,
 
@@ -191,7 +206,7 @@ text_cleaner_tool = Tool(
 
 relation_mapping_tool = Tool(
 
-    name="Relation Mapper Tool",
+    name="relation_mapper_tool",
 
     func=relation_mapper_tool,
 
@@ -209,7 +224,7 @@ relation_mapping_tool = Tool(
 
 financial_rules_tool = Tool(
 
-    name="Financial Logic Tool",
+    name="financial_logic_tool",
 
     func=financial_logic_tool,
 
@@ -227,7 +242,7 @@ financial_rules_tool = Tool(
 
 validation_alert_tool = Tool(
 
-    name="Validation Alert Tool",
+    name="validation_alert_tool",
 
     func=push_validation_alert_tool,
 
@@ -237,6 +252,23 @@ validation_alert_tool = Tool(
     )
 )
 
+
+# =========================================================
+# TOOL 12 → GENERIC FILE READER TOOL
+# =========================================================
+
+def read_file_wrapper(file_path: str) -> str:
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+read_file_tool = Tool(
+    name="read_file_tool",
+    func=read_file_wrapper,
+    description="Reads the content of any generic text file given its path."
+)
 
 # =========================================================
 # ALL TOOLS LIST
@@ -264,5 +296,7 @@ ALL_TOOLS = [
 
     ui_tool,
     
-    validation_alert_tool
+    validation_alert_tool,
+
+    read_file_tool
 ]

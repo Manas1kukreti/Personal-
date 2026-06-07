@@ -42,7 +42,9 @@ MASTER_SCHEMA = {
 
     "amount": "amount",
     "debit": "debit_amount",
+    "dr": "debit_amount",
     "credit": "credit_amount",
+    "cr.": "credit_amount",
 
     # =================================================
     # ACCOUNT KEYS
@@ -57,6 +59,7 @@ MASTER_SCHEMA = {
 
     "account": "account",
     "subaccount": "subaccount",
+    "account name": "sub_account",
 
     "class": "account_class",
     "subclass": "account_subclass",

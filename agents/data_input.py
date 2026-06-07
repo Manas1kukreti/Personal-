@@ -9,30 +9,15 @@ from pathlib import Path
 import PyPDF2
 import pandas as pd
 
-from import_paths import ensure_project_paths
-
-ensure_project_paths()
-
-# =====================================================
-# CUSTOM TOOLS
-# =====================================================
-
-from excel_reader_tool import read_excel_tool
-
-from limit_tool import limit_rows_tool
-
-from field_mapper_tool import field_mapper_tool
-
-from text_cleaner_tool import clean_dataframe_tool
-
-from relation_mapper_tool import relation_mapper_tool
-
-from financial_logic_tool import financial_logic_tool
-
 from config_loader import get_workflow_config
+from ledgerflow_agent.guardrails import GuardrailViolation, require_env, validate_attachment_path
+from tools.excel_reader_tool import read_excel_tool
+from tools.limit_tool import limit_rows_tool
+from tools.field_mapper_tool import field_mapper_tool
+from tools.text_cleaner_tool import clean_dataframe_tool
+from tools.relation_mapper_tool import relation_mapper_tool
+from tools.financial_logic_tool import financial_logic_tool
 
-
-# =====================================================
 # LOAD ENV VARIABLES
 # =====================================================
 
@@ -49,6 +34,10 @@ EMAIL_USER = os.getenv("EMAIL_USER")
 
 
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+IMAP_HOST = require_env("LEDGERFLOW_IMAP_HOST")
+
+IMAP_PORT = int(require_env("LEDGERFLOW_IMAP_PORT"))
 
 
 print("EMAIL_USER CONFIGURED:", bool(EMAIL_USER))
@@ -77,7 +66,8 @@ def connect_email():
     print("\nCONNECTING TO GMAIL...\n")
 
     mail = imaplib.IMAP4_SSL(
-        "imap.gmail.com"
+        IMAP_HOST,
+        IMAP_PORT
     )
 
     mail.login(
@@ -248,24 +238,33 @@ def process_email(msg):
 # =====================================================
 
 def extract_attachment_text(filepath):
+    try:
+
+        safe_path = validate_attachment_path(filepath)
+
+    except GuardrailViolation as exc:
+
+        print("\nATTACHMENT REJECTED BY GUARDRAILS\n")
+
+        print(exc)
+
+        return ""
 
     # =================================================
     # PDF
     # =================================================
 
-    if filepath.lower().endswith(".pdf"):
+    if safe_path.suffix.lower() == ".pdf":
 
-        return extract_pdf(filepath)
+        return extract_pdf(str(safe_path))
 
     # =================================================
     # EXCEL
     # =================================================
 
-    elif filepath.lower().endswith(
-        (".xlsx", ".xls")
-    ):
+    elif safe_path.suffix.lower() in (".xlsx", ".xls"):
 
-        return extract_excel(filepath)
+        return extract_excel(str(safe_path))
 
     # =================================================
     # UNSUPPORTED
@@ -310,6 +309,7 @@ def extract_pdf(filepath):
         print(e)
 
     return clean_text(text)
+
 
 
 # =====================================================
@@ -383,6 +383,9 @@ def extract_excel(filepath):
         # STEP 7 → CONVERT TO JSON
         # =================================================
 
+        # Prevent NaN floats from breaking standard JSON and Pydantic string validation
+        df = df.fillna("")
+
         structured_json = df.to_dict(
             orient="records"
         )
@@ -417,11 +420,8 @@ def extract_excel(filepath):
         return ""
 
 
-# =====================================================
-# CLEAN TEXT
-# =====================================================
-
 def clean_text(text):
+
 
     text = text.strip()
 
