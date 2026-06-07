@@ -40,6 +40,17 @@ class GLTransaction(BaseModel):
     account_subclass: str = ""
 
 
+def _invalid_result(message: str, *, transaction_index: int | None = None) -> dict:
+    error: dict[str, object] = {"error": message}
+    if transaction_index is not None:
+        error["transaction_index"] = transaction_index
+    return {
+        "status": "invalid",
+        "errors": [error],
+        "warnings": [],
+    }
+
+
 # =========================================================
 # JSON SCHEMA
 # =========================================================
@@ -138,10 +149,7 @@ def validate_data(
         if isinstance(parsed, dict):
             parsed = [parsed]
         elif not isinstance(parsed, list):
-            return {
-                "status": "invalid",
-                "error": "Expected JSON array"
-            }
+            return _invalid_result("Expected JSON array")
 
         # =================================================
         # EMPTY CHECK
@@ -149,12 +157,7 @@ def validate_data(
 
         if len(parsed) == 0:
 
-            return {
-
-                "status": "invalid",
-
-                "error": "NO FINANCIAL DATA EXTRACTED"
-            }
+            return _invalid_result("NO FINANCIAL DATA EXTRACTED")
 
         # =================================================
         # STORAGE
@@ -562,9 +565,4 @@ def validate_data(
 
     except Exception as e:
 
-        return {
-
-            "status": "invalid",
-
-            "error": str(e)
-        }
+        return _invalid_result(str(e))

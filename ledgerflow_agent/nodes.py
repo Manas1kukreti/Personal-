@@ -16,6 +16,13 @@ from ledgerflow_agent.guardrails import safe_error_message, validate_final_outpu
 from ledgerflow_agent.memory import load_memory, save_memory, summarise_memory, update_memory
 from ledgerflow_agent.prompts import SUPERVISOR_PROMPT, get_agent_prompt, get_all_agent_profiles
 from ledgerflow_agent.registry import call_tool
+from ledgerflow_agent.routing import (
+    decide_after_input,
+    decide_after_repair,
+    decide_after_start,
+    decide_after_ui,
+    decide_after_validation,
+)
 from ledgerflow_agent.state import LedgerFlowState
 from ledgerflow_agent.utils import (
     append_tool,
@@ -260,7 +267,7 @@ def validation_node(state: LedgerFlowState) -> dict[str, Any]:
         }
 
     retry_count = int(state.get("retry_count", 0))
-    has_errors = normal_validation_errors(result)
+    has_errors = bool(normal_validation_errors(result)) or str(result.get("status", "")).lower() != "valid"
     if has_errors:
         retry_count += 1
 
@@ -542,44 +549,6 @@ def finalize_node(state: LedgerFlowState) -> dict[str, Any]:
     }
 
 
-def _default_route_after_start(state: LedgerFlowState) -> str:
-    return "validate" if is_structured_transaction_data(state.get("extracted_data"), _required_fields()) else "input"
-
-
-def _default_route_after_input(state: LedgerFlowState) -> str:
-    if state.get("processing_status") == "input_failed":
-        return "notification"
-    return "validate" if is_structured_transaction_data(state.get("extracted_data"), _required_fields()) else "extract"
-
-
-def _default_route_after_validation(state: LedgerFlowState) -> str:
-    validation_result = state.get("validation_result", {})
-    retry_count = int(state.get("retry_count", 0))
-    max_r = int(state.get("max_retries", _max_retries()))
-
-    if validation_result.get("status") == "valid":
-        return "ui"
-    if has_balance_errors(validation_result):
-        return "ui"
-    if retry_count >= max_r:
-        return "notification"
-    return "repair"
-
-
-def _default_route_after_repair(state: LedgerFlowState) -> str:
-    if state.get("processing_status") == "repaired":
-        return "validate"
-    if int(state.get("retry_count", 0)) >= int(state.get("max_retries", _max_retries())):
-        return "notification"
-    return "notification"
-
-
-def _default_route_after_ui(state: LedgerFlowState) -> str:
-    if state.get("processing_status") in {"ui_pushed_with_alert", "ui_failed"}:
-        return "notification"
-    return "finalize"
-
-
 def _llm_route(state: LedgerFlowState, valid_nodes: list[str], fallback: str, max_retries: int = 3) -> str:
     from agents.react_agent import get_supervisor_llm
 
@@ -624,23 +593,23 @@ No explanation. No markdown. Just the node name.
 
 
 def route_after_start(state: LedgerFlowState) -> Literal["input", "validate"]:
-    return _default_route_after_start(state)  # type: ignore[return-value]
+    return decide_after_start(state)  # type: ignore[return-value]
 
 
 def route_after_input(state: LedgerFlowState) -> Literal["extract", "validate", "notification"]:
-    fallback = _default_route_after_input(state)
+    fallback = decide_after_input(state)
     return _llm_route(state, ["extract", "validate", "notification"], fallback)  # type: ignore[return-value]
 
 
 def route_after_validation(state: LedgerFlowState) -> Literal["ui", "repair", "notification"]:
-    fallback = _default_route_after_validation(state)
+    fallback = decide_after_validation(state)
     return _llm_route(state, ["ui", "repair", "notification"], fallback)  # type: ignore[return-value]
 
 
 def route_after_repair(state: LedgerFlowState) -> Literal["validate", "extract", "notification"]:
-    fallback = _default_route_after_repair(state)
+    fallback = decide_after_repair(state)
     return _llm_route(state, ["validate", "extract", "notification"], fallback)  # type: ignore[return-value]
 
 
 def route_after_ui(state: LedgerFlowState) -> Literal["notification", "finalize"]:
-    return _default_route_after_ui(state)  # type: ignore[return-value]
+    return decide_after_ui(state)  # type: ignore[return-value]

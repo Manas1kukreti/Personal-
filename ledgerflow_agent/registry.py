@@ -57,6 +57,12 @@ TOOL_REGISTRY: dict[str, LedgerFlowTool] = {
         module="agents.ui_agent",
         function="push_to_ui",
     ),
+    "upload_file": LedgerFlowTool(
+        name="upload_file",
+        role="Upload the verified spreadsheet to the dashboard.",
+        module="agents.ui_agent",
+        function="upload_tool",
+    ),
     "login": LedgerFlowTool(
         name="login",
         role="Authenticate with the dashboard for alert delivery.",

@@ -31,6 +31,7 @@ AGENT_TOOL_POLICY: dict[str, dict[str, set[str]]] = {
             "push_to_ui", "login",
             "save_json", "save_json_tool",
             "generate_excel", "generate_excel_tool",
+            "upload_file",
         },
         "langchain_tools": {"ui_push_tool"},
     },

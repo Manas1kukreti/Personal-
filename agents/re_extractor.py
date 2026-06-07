@@ -21,29 +21,34 @@ def validate_repair(transaction_data, failed_field, new_value):
     # We construct a mock transformed transaction just like validator.py does
     transformed = {
         "voucher_date": transaction_data.get("voucher_date", ""),
-        "entry_no": transaction_data.get("voucher_number", ""),
-        "sub_account": transaction_data.get("subaccount", ""),
+        "entry_no": transaction_data.get("entry_no", transaction_data.get("voucher_number", "")),
+        "sub_account": transaction_data.get("sub_account", transaction_data.get("subaccount", "")),
         "details": transaction_data.get("particulars", ""),
         "debit_amount": transaction_data.get("debit_amount", ""),
         "credit_amount": transaction_data.get("credit_amount", ""),
-        "account_code": transaction_data.get("account_key", ""),
+        "account_code": transaction_data.get("account_code", transaction_data.get("account_key", "")),
         "country": transaction_data.get("country", ""),
         "region": transaction_data.get("region", ""),
-        "class_name": transaction_data.get("account_class", ""),
+        "class_name": transaction_data.get("class_name", transaction_data.get("account_class", "")),
         "account_subclass": transaction_data.get("account_subclass", "")
     }
     
     field_map = {
         "voucher_date": "voucher_date",
         "voucher_number": "entry_no",
+        "entry_no": "entry_no",
         "subaccount": "sub_account",
+        "sub_account": "sub_account",
         "particulars": "details",
+        "details": "details",
         "debit_amount": "debit_amount",
         "credit_amount": "credit_amount",
         "account_key": "account_code",
+        "account_code": "account_code",
         "country": "country",
         "region": "region",
         "account_class": "class_name",
+        "class_name": "class_name",
         "account_subclass": "account_subclass"
     }
     
@@ -72,21 +77,21 @@ def re_extract_field(transaction_data, failed_field, current_value):
     try:
         if failed_field in ["debit_amount", "credit_amount"]:
             amount = transaction_data.get("amount", 0)
-            account_class = transaction_data.get("class", "")
+            account_class = transaction_data.get("class_name", transaction_data.get("class", ""))
             debit, credit = determine_debit_credit(amount, account_class)
             return _safe_return(transaction_data, failed_field, debit if failed_field == "debit_amount" else credit)
 
         if failed_field == "ledger_name":
-            return transaction_data.get("subaccount", "") or transaction_data.get("account", "") or None
+            return transaction_data.get("sub_account", "") or transaction_data.get("subaccount", "") or transaction_data.get("account", "") or None
 
         if failed_field == "voucher_type":
-            return transaction_data.get("class", "") or transaction_data.get("subclass", "") or None
+            return transaction_data.get("class_name", "") or transaction_data.get("class", "") or transaction_data.get("subclass", "") or None
 
         if failed_field in ["particulars", "narration"]:
             return _safe_return(transaction_data, failed_field, transaction_data.get("details", "") or None)
 
         if failed_field == "account_code":
-            account_key = transaction_data.get("account_key", "")
+            account_key = transaction_data.get("account_code", transaction_data.get("account_key", ""))
             return _safe_return(transaction_data, failed_field, str(account_key) if account_key != "" else None)
 
         if failed_field == "country":
