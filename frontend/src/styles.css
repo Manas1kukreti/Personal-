@@ -228,6 +228,7 @@ tr:hover {
 
 .app-page {
   animation: pageRise 0.5s ease-out both;
+  min-width: 0;
 }
 
 .app-content {
@@ -2007,6 +2008,7 @@ input:focus, textarea:focus, select:focus {
 .data-table-card {
   overflow: visible;
   max-width: 100%;
+  min-width: 0;
 }
 
 .data-table-header {
@@ -3772,8 +3774,12 @@ body {
 }
 
 .lf-reference-sidebar__nav {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .lf-reference-sidebar__link {
@@ -3829,6 +3835,9 @@ body {
 }
 
 .lf-reference-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   height: 72px;
   background: #F7F8FE;
   border-bottom: 1px solid #E0E4F4;
@@ -3981,6 +3990,7 @@ body {
 
 .lf-reference-content {
   padding: 34px 38px 44px;
+  min-width: 0;
 }
 
 .lf-analytics-page {
@@ -4179,7 +4189,14 @@ body {
 .lf-reference-sidebar {
   background: #F4F5FC;
   border-right: 1px solid #DEE2F3;
-  padding: 28px 22px 0;
+  padding: 28px 22px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  z-index: 25;
 }
 
 .lf-reference-sidebar__brand {
@@ -5555,6 +5572,17 @@ body {
   border-radius: 12px;
 }
 
+.lf-sidebar-collapsible.is-collapsed {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.lf-sidebar-collapsible.is-collapsed .lf-sidebar-logo-wrap img {
+  width: 32px !important;
+  height: 32px !important;
+  object-position: center;
+}
+
 
 /* Collapse toggle button */
 .lf-sidebar-toggle {
@@ -6148,18 +6176,5 @@ body {
   overflow-x: hidden;
 }
 
-/* Global desktop auto-scaling via CSS transform on the React #root element */
-@media (min-width: 1025px) {
-  html {
-    overflow-x: hidden;
-  }
-  #root {
-    transform: scale(var(--app-scale, 1));
-    transform-origin: top left;
-    width: calc(100% / var(--app-scale, 1)) !important;
-    min-height: calc(100vh / var(--app-scale, 1)) !important;
-    display: flex;
-    flex-direction: column;
-  }
-}
+
 

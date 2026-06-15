@@ -15,19 +15,31 @@ import SettingsPage from "./pages/SettingsPage.jsx";
 import AuthPage from "./pages/AuthPage.jsx";
 import "./styles.css";
 import LandingPage from "./pages/LandingPage.jsx";
-// Auto-scaling script to set viewport scale ratio based on 1536px target width
+// Auto-scaling script using body zoom (retains native sticky/fixed positioning)
 const handleResize = () => {
   const width = window.innerWidth;
   if (width > 1024) {
     const scale = width / 1536; // Target base width of 1536px
     const cappedScale = Math.min(1.3, Math.max(0.7, scale));
+    if (document.body) {
+      document.body.style.zoom = cappedScale;
+    }
     document.documentElement.style.setProperty("--app-scale", cappedScale);
   } else {
+    if (document.body) {
+      document.body.style.zoom = 1;
+    }
     document.documentElement.style.setProperty("--app-scale", 1);
   }
 };
 window.addEventListener("resize", handleResize);
+// Run handleResize immediately and also on DOMContentLoaded to ensure document.body is available
 handleResize();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", handleResize);
+} else {
+  handleResize();
+}
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
