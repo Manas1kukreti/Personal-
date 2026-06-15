@@ -138,4 +138,6 @@ Data integrity and traceability are paramount in the LedgerFlow pipeline.
 - **Validation Node Hardening**: Re-prioritized the deterministic `validate_data` function in `nodes.py` to bypass brittle LLM schema outputs, preventing catastrophic empty-output crashes during the validation phase.
 - **Data Sanitization & NaN Handling**: Added strict dataframe sanitization (`df.fillna("")`) in `data_input.py` just before JSON conversion. This prevents unmapped Pandas `NaN` placeholders from poisoning the JSON schema and breaking downstream validation.
 - **Pydantic Type Coercion**: Implemented an explicit string coercion loop in `validator.py` right before passing the `transformed_transaction` to the Pydantic `GLTransaction` model. This fixes a fatal crash in Pydantic's strict `string_type` mode that was violently rejecting raw floats and integers (like voucher numbers `2001.1`) originating from the Excel file.
+- **Frontend/Backend Integration & Output Path Overrides**: Added `SKIP_HTTP_UPLOAD` flag in `ui_agent.py` to skip HTTP login/upload loop when running directly from the FastAPI backend. Implemented `OUTPUT_EXCEL_FILE` and `OUTPUT_JSON_FILE` environment overrides in `ui_agent.py` to allow custom, unique output file paths (avoiding concurrent write conflicts).
+
 

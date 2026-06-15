@@ -114,8 +114,13 @@ def save_json_tool(validated_data):
 
         cleaned_data["data"] = cleaned_rows
 
-        with open(PROJECT_ROOT / "verified_data.json", "w") as f:
-            json.dump(cleaned_data, f, indent=4)
+        output_json = os.getenv("OUTPUT_JSON_FILE")
+        if output_json:
+            with open(output_json, "w") as f:
+                json.dump(cleaned_data, f, indent=4)
+        else:
+            with open(PROJECT_ROOT / "verified_data.json", "w") as f:
+                json.dump(cleaned_data, f, indent=4)
 
         print("VERIFIED DATA SAVED AS JSON")
         
@@ -188,7 +193,11 @@ def generate_excel_tool(validated_data):
 
         existing_columns = [col for col in preferred_columns if col in df.columns]
         df = df[existing_columns]
-        df.to_excel(PROJECT_ROOT / "verified_data.xlsx", index=False)
+        output_excel = os.getenv("OUTPUT_EXCEL_FILE")
+        if output_excel:
+            df.to_excel(output_excel, index=False)
+        else:
+            df.to_excel(PROJECT_ROOT / "verified_data.xlsx", index=False)
 
         print("GL EXCEL FILE GENERATED SUCCESSFULLY")
 
@@ -424,11 +433,14 @@ def push_to_ui(validated_data):
         # Save to PostgreSQL
         save_to_postgres(validated_data)
         
-        token = login_tool()
-        upload_tool(token)
-
-        print("\nDATA PUSHED SUCCESSFULLY\n")
-        return {"status": "success", "message": "GL data pushed successfully"}
+        if os.getenv("SKIP_HTTP_UPLOAD") != "true":
+            token = login_tool()
+            upload_tool(token)
+            print("\nDATA PUSHED SUCCESSFULLY\n")
+            return {"status": "success", "message": "GL data pushed successfully"}
+        else:
+            print("\nDATA GENERATED SUCCESSFULLY (SKIPPED HTTP UPLOAD)\n")
+            return {"status": "success", "message": "GL data processed successfully"}
 
     except Exception as e:
         print("\nUI AGENT ERROR:\n")
