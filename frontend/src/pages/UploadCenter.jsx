@@ -15,6 +15,7 @@ import {
 } from "react-icons/fi";
 import { api } from "../api/client.js";
 import { useWebSocket } from "../hooks/useWebSocket.js";
+import DataTable from "../components/DataTable.jsx";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const PAGE_SIZE = 5;
@@ -48,6 +49,7 @@ export default function UploadCenter() {
   const [selectedUploadIds, setSelectedUploadIds] = useState(() => new Set());
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [useAgents, setUseAgents] = useState(false);
 
   const loadUploads = useCallback(async () => {
     const response = await api.get("/uploads");
@@ -171,11 +173,15 @@ export default function UploadCenter() {
     setMessage("Uploading file");
 
     try {
-      const response = await api.post("/uploads", form, { headers: { "Content-Type": "multipart/form-data" } });
+      const response = await api.post(`/uploads?use_agents=${useAgents}`, form, { headers: { "Content-Type": "multipart/form-data" } });
       setPreview(response.data);
       activeUploadIdRef.current = response.data?.upload_id ?? null;
       setProgress(40);
-      setMessage("File received. Validation is running in the background.");
+      if (useAgents) {
+        setMessage("File received. AI Agentic Pipeline is running in the background.");
+      } else {
+        setMessage("File received. Validation is running in the background.");
+      }
       await loadUploads();
     } catch (err) {
       setProgress(0);
@@ -207,6 +213,7 @@ export default function UploadCenter() {
     setProgress(0);
     setMessage("");
     setError("");
+    setUseAgents(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (folderInputRef.current) folderInputRef.current.value = "";
   }
@@ -298,7 +305,7 @@ export default function UploadCenter() {
             Browse Folder
           </button>
         </div>
-        <span>Supported formats: CSV, XLSX, JSON • Max file size: 10MB</span>
+        <span>Supported formats: CSV, XLSX, JSON ï¿½ Max file size: 10MB</span>
       </section>
 
       {file && (
@@ -309,10 +316,23 @@ export default function UploadCenter() {
             </div>
             <div>
               <strong>{file.name}</strong>
-              <p>{formatFileSize(file.size)}{preview ? ` • ${preview.total_rows || 0} rows` : ""}</p>
+              <p>{formatFileSize(file.size)}{preview ? ` ï¿½ ${preview.total_rows || 0} rows` : ""}</p>
             </div>
           </div>
           <div className="lf-upload-current-file__actions">
+            <div className="lf-agent-toggle-container">
+              <label className="lf-agent-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={useAgents}
+                  onChange={(e) => setUseAgents(e.target.checked)}
+                  className="lf-agent-toggle-checkbox"
+                  disabled={Boolean(preview)}
+                />
+                <span className="lf-agent-toggle-slider" />
+                <span className="lf-agent-toggle-text">Use AI Agent Pipeline</span>
+              </label>
+            </div>
             <div className="lf-upload-inline-progress">
               <div className="lf-upload-inline-progress__label">
                 <span>{preview?.status === "processing" ? "Processing" : "Upload progress"}</span>
@@ -338,6 +358,36 @@ export default function UploadCenter() {
           <FiAlertCircle size={16} />
           <span>{error || "File is larger than the 10 MB limit."}</span>
         </div>
+      )}
+
+      {preview && preview.status === "initiated" && (
+        <section className="lf-upload-preview-section" style={{ marginTop: "24px", display: "flex", flexDirection: "column", gap: "16px", width: "100%", maxWidth: "100%", overflow: "hidden" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", justifyContent: "space-between", alignItems: "center", background: "rgba(99, 102, 241, 0.05)", padding: "16px 20px", borderRadius: "12px", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
+            <div style={{ flex: "1", minWidth: "280px" }}>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: "700", color: "#20245C" }}>Review Cleaned & Processed Data</h3>
+              <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#9AA0B9" }}>Please review the validation output below before submitting to your manager.</p>
+            </div>
+            <button 
+              className="lf-upload-primary" 
+              type="button"
+              onClick={async () => {
+                try {
+                  await api.post(`/uploads/${preview.upload_id}/submit`, {});
+                  setMessage("Cleaned data approved and successfully submitted to your manager.");
+                  setPreview(null);
+                  setFile(null);
+                  await loadUploads();
+                } catch (err) {
+                  setError(err.response?.data?.detail || "Failed to submit to manager.");
+                }
+              }}
+              style={{ padding: "10px 20px", fontSize: "14px", fontWeight: "600", cursor: "pointer" }}
+            >
+              Approve & Submit to Manager
+            </button>
+          </div>
+          <DataTable columns={preview.columns} rows={preview.preview_rows} title="Cleaned Data Preview" />
+        </section>
       )}
 
       <section className="lf-upload-table-card">

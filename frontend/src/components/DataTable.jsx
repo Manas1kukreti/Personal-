@@ -126,13 +126,114 @@ export default function DataTable({ columns = [], rows = [], pageSize = 8, title
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row, index) => (
-              <tr key={`${page}-${index}`}>
-                {activeColumns.map((column) => (
-                  <td key={column}>{String(row[column] ?? "")}</td>
-                ))}
-              </tr>
-            ))}
+            {visibleRows.map((row, index) => {
+              const dtcdVal = row.dtcd_difference ?? row["dtcd difference"] ?? row["dtcd_difference"];
+              const isDtcdAlert = dtcdVal !== undefined && dtcdVal !== null && Number(dtcdVal) !== 0;
+              const hasValidationMsg = row.validation_messages && String(row.validation_messages).trim() !== "";
+              const hasAlert = isDtcdAlert || hasValidationMsg;
+
+              return (
+                <tr 
+                  key={`${page}-${index}`}
+                  style={hasAlert ? { 
+                    background: "rgba(239, 68, 68, 0.02)", 
+                    borderLeft: "3px solid hsl(354, 70%, 54%)" 
+                  } : {}}
+                >
+                  {activeColumns.map((column) => {
+                    const cellVal = row[column];
+                    const isColDtcd = column === "dtcd_difference" || column === "dtcd difference";
+                    const isColValMsg = column === "validation_messages" || column === "validation messages";
+                    const isColRepair = column === "repairs_applied" || column === "repairs applied";
+
+                    let renderedContent = String(cellVal ?? "");
+
+                    if (isColDtcd && isDtcdAlert) {
+                      renderedContent = (
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          color: "hsl(354, 75%, 55%)",
+                          fontWeight: "700",
+                          backgroundColor: "rgba(239, 68, 68, 0.1)",
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                          border: "1px solid rgba(239, 68, 68, 0.2)",
+                          fontSize: "0.8rem",
+                          letterSpacing: "0.02em"
+                        }}>
+                          ⚠️ {Number(cellVal).toLocaleString("en-IN", { style: "currency", currency: "INR" })}
+                        </span>
+                      );
+                    } else if (isColValMsg && cellVal) {
+                      renderedContent = (
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          color: "hsl(35, 95%, 48%)",
+                          fontWeight: "600",
+                          backgroundColor: "rgba(245, 158, 11, 0.08)",
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                          border: "1px solid rgba(245, 158, 11, 0.2)",
+                          fontSize: "0.8rem"
+                        }}>
+                          🚨 {String(cellVal)}
+                        </span>
+                      );
+                    } else if (isColRepair && cellVal) {
+                      renderedContent = (
+                        <span style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          color: "hsl(142, 72%, 40%)",
+                          fontWeight: "600",
+                          backgroundColor: "rgba(16, 185, 129, 0.08)",
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                          border: "1px solid rgba(16, 185, 129, 0.2)",
+                          fontSize: "0.8rem"
+                        }}>
+                          🔧 {String(cellVal)}
+                        </span>
+                      );
+                    } else if (cellVal === null || cellVal === undefined) {
+                      renderedContent = "-";
+                    }
+
+                    let cellStyle = {};
+                    if (isColValMsg || isColRepair) {
+                      cellStyle = {
+                        whiteSpace: "normal",
+                        wordBreak: "break-word",
+                        minWidth: "220px",
+                        maxWidth: "none"
+                      };
+                    } else if (isColDtcd) {
+                      cellStyle = {
+                        whiteSpace: "nowrap",
+                        minWidth: "120px"
+                      };
+                    }
+
+                    return (
+                      <td 
+                        key={column} 
+                        style={{
+                          ...(hasAlert ? { paddingLeft: "12px" } : {}),
+                          ...cellStyle
+                        }}
+                      >
+                        {renderedContent}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
             {!visibleRows.length && (
               <tr>
                 <td colSpan={Math.max(1, activeColumns.length)}>

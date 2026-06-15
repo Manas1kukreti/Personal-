@@ -197,6 +197,15 @@ export default function SubmissionsPage() {
     }
   }
 
+  async function submitToManager(upload) {
+    try {
+      await api.post(`/uploads/${upload.id}/submit`, {});
+      await loadUploads();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Unable to submit to manager.");
+    }
+  }
+
   function openComments(upload, submissionCode) {
     setCommentsSubmission({ ...upload, submissionCode });
     setOpenMenuId(null);
@@ -338,6 +347,27 @@ export default function SubmissionsPage() {
                         >
                           <FiUploadCloud size={15} />
                           {reuploading === upload.id ? "Uploading..." : "Re-upload"}
+                        </button>
+                      )}
+                      {upload.status === "initiated" && (
+                        <button
+                          className="lf-submissions-approve"
+                          onClick={() => submitToManager(upload)}
+                          type="button"
+                          style={{
+                            backgroundColor: "hsl(243, 75%, 59%)",
+                            color: "#ffffff",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "6px 12px",
+                            borderRadius: "8px",
+                            fontSize: "0.8rem",
+                            fontWeight: "600"
+                          }}
+                        >
+                          <FiSend size={15} />
+                          Submit to Manager
                         </button>
                       )}
                     </div>
@@ -685,6 +715,7 @@ function StatusPill({ status }) {
     pending: "Pending",
     declined: "Rejected",
     reupload_requested: "Under Review",
+    initiated: "Draft / Unsubmitted",
   };
   return (
     <span className={`lf-submissions-status lf-submissions-status-${normalized}`}>

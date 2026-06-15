@@ -15,8 +15,19 @@ import SettingsPage from "./pages/SettingsPage.jsx";
 import AuthPage from "./pages/AuthPage.jsx";
 import "./styles.css";
 import LandingPage from "./pages/LandingPage.jsx";
-
-
+// Auto-scaling script to set viewport scale ratio based on 1536px target width
+const handleResize = () => {
+  const width = window.innerWidth;
+  if (width > 1024) {
+    const scale = width / 1536; // Target base width of 1536px
+    const cappedScale = Math.min(1.3, Math.max(0.7, scale));
+    document.documentElement.style.setProperty("--app-scale", cappedScale);
+  } else {
+    document.documentElement.style.setProperty("--app-scale", 1);
+  }
+};
+window.addEventListener("resize", handleResize);
+handleResize();
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
