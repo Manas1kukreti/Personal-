@@ -428,7 +428,7 @@ class TestCompiledGraph:
 
     def test_compiled_graph_nodes_and_edges(self):
         """Verify the compiled graph has the exact supervisor-centric nodes."""
-        from ledgerflow_agent.graph import ledgerflow_graph
+        from graph.graph import ledgerflow_graph
 
         expected_nodes = {
             "supervisor",
