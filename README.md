@@ -1,170 +1,90 @@
+# LedgerFlow Agentic Pipeline
 
+An agentic ETL pipeline built on **LangGraph** to automate the ingestion, extraction, validation, repair, and storage of financial general ledger (GL) transaction records.
 
 ```text
-
-                ┌────────────────────┐
-
-                │    EMAIL SOURCE    │
-
-                │ Gmail / Outlook    │
-
-                └─────────┬──────────┘
-
-                          │
-
-                          ▼
-
-                ┌────────────────────┐
-
-                │    EMAIL AGENT     │
-
-                │ Fetch latest mail  │
-
-                └─────────┬──────────┘
-
-                          │
-
-                          ▼
-
-                ┌────────────────────┐
-
-                │    INPUT AGENT     │
-
-                │ Tool Orchestrator  │
-
-                └─────────┬──────────┘
-
-                          │
-
-        ┌─────────────────┼─────────────────┐
-
-        ▼                 ▼                 ▼
-
-┌──────────────┐ ┌────────────────┐ ┌──────────────────┐
-
-│ Excel Reader │ │ Field Mapper   │ │ Relational Mapper│
-
-│ Tool         │ │ Tool           │ │ Tool             │
-
-└──────┬───────┘ └────────┬───────┘ └────────┬─────────┘
-
-       │                  │                  │
-
-       └──────────────────┼──────────────────┘
-
-                          ▼
-
-                ┌────────────────────┐
-
-                │ Financial Logic    │
-
-                │ Tool               │
-
-                └─────────┬──────────┘
-
-                          ▼
-
-                ┌────────────────────┐
-
-                │  EXTRACTION AGENT  │
-
-                │ LLM Structured JSON│
-
-                └─────────┬──────────┘
-
-                          ▼
-
-                ┌────────────────────┐
-
-                │ VALIDATOR AGENT    │
-
-                │ Schema Validation  │
-
-                └─────────┬──────────┘
-
-                          │
-              Valid            Invalid
-              ┌───────────┴───────────┐
-
-              │                       │
-
-              ▼                       ▼
-
-    ┌──────────────────┐     ┌──────────────────┐
-
-    │     UI AGENT     │     │ RE-EXTRACTION    │
-
-    │ Excel + Upload   │     │ AGENT            │
-
-    └────────┬─────────┘     └────────┬─────────┘
-
-             │                        │
-
-             ▼                  Retry up to
-
-    ┌────────────────────┐         5 times
-
-    │ FRONTEND / DASHBOARD│             │
-
-    └────────────────────┘              ▼
-
-                              ┌────────────────────┐
-
-                              │ VALIDATOR AGENT    │
-
-                              │ Recheck Output     │
-
-                              └─────────┬──────────┘
-
-                                        │
-                                Valid      Invalid
-                         ┌──────────────┴──────────────┐
-
-                         │                             │
-
-                         ▼                             ▼
-
-               ┌──────────────────┐       ┌────────────────────┐
-
-               │     UI AGENT     │       │ NOTIFICATION AGENT │
-
-               │ Excel + Upload   │       │ Failure Alert      │
-
-               └────────┬─────────┘       └────────────────────┘
-
-                        │
-
-                        ▼
-
-               ┌────────────────────┐
-
-               │ FRONTEND / DASHBOARD│
-
-               └────────────────────┘
-
+                               ┌──────────────┐
+                               │  __start__   │
+                               └──────┬───────┘
+                                      │
+                                      ▼
+                             ┌────────────────┐
+                    ┌───────>│   SUPERVISOR   │<────────┐
+                    │        │  (Orchestrator)│         │
+                    │        └──────┬─────────┘         │
+                    │               │                   │
+                    │               ▼                   │
+             ┌──────┴───────┐┌──────┴────────┐┌─────────┴────────┐
+             │ fetch_email  ││ preprocessing ││   extract_data   │
+             └──────────────┘└───────────────┘└──────────────────┘
+                    │               │
+                    ▼               ▼
+             ┌──────────────┐┌───────────────┐
+             │   validate   ││  re_extract   │
+             └──────┬───────┘└───────────────┘
+                    │
+                    ├─── (Balanced / Under Limit) ──> push_to_ui ──> [ __end__ ]
+                    │                                    │
+                    │                                (With Alert)
+                    │                                    │
+                    └─── (Imbalance / Max Retries) ───> notification ──> [ __end__ ]
 ```
 
+## Project Overview
 
-Project Overview
-
-The system automatically processes financial/general ledger data from emails and Excel files and converts it into structured accounting-ready output.
+LedgerFlow automates the processing of financial/general ledger transaction data. It fetches new files from emails, parses spreadsheets, standardizes formats, validates balance logic, corrects parsing mistakes using AI, and exports audit logs, spreadsheets, and database rows.
 
 The architecture combines:
+* **Deterministic Preprocessing Tools**: Fast, precise, and rule-based parsing.
+* **AI-Powered Extraction**: Large Language Models (Groq Llama 3.3 70B) to handle highly variable layouts.
+* **Accounting Validation**: Checks double-entry bookkeeping rules (e.g. debits == credits).
+* **Self-Healing Loop**: Automatic re-extraction and repair loop for malformed data.
+* **PostgreSQL Storage & Excel Outputs**: Multi-destination storage for production systems.
 
-* Deterministic preprocessing tools
-* AI-powered extraction
-* Accounting business logic
-* Validation and retry mechanisms
-* Frontend integration
+---
 
-This hybrid approach makes the pipeline more reliable and production-oriented compared to using only LLMs.
+## Architecture Diagram (Mermaid)
 
-Environment Variables
+```mermaid
+graph TD;
+	__start__([__start__])
+	supervisor(supervisor)
+	fetch_email(fetch_email)
+	preprocessing_tools(preprocessing_tools)
+	extract_data(extract_data)
+	validate(validate)
+	re_extract(re_extract)
+	push_to_ui(push_to_ui)
+	notification(notification)
+	__end__([__end__])
 
-The code now uses a single canonical naming scheme, while still accepting older aliases for backward compatibility.
+	__start__ --> supervisor;
+	extract_data --> supervisor;
+	fetch_email --> supervisor;
+	preprocessing_tools --> supervisor;
+	push_to_ui -.-> __end__;
+	push_to_ui -.-> notification;
+	re_extract --> supervisor;
+	supervisor -.-> extract_data;
+	supervisor -.-> fetch_email;
+	supervisor -.-> notification;
+	supervisor -.-> preprocessing_tools;
+	supervisor -.-> push_to_ui;
+	supervisor -.-> validate;
+	validate -.-> notification;
+	validate -.-> push_to_ui;
+	validate -.-> re_extract;
+	notification --> __end__;
+```
 
-Canonical names:
+---
 
+## Environment Variables
+
+Configure these variables in a local `.env` file. The system uses a canonical naming scheme but supports legacy aliases for backward compatibility.
+
+### Canonical Names
+* `DATABASE_URL` (e.g., `postgresql://postgres:postgres@localhost:5432/ledgerflow`)
 * `LEDGERFLOW_MAIL_USERNAME`
 * `LEDGERFLOW_MAIL_PASSWORD`
 * `LEDGERFLOW_IMAP_HOST`
@@ -180,149 +100,56 @@ Canonical names:
 * `LEDGERFLOW_SMTP_PORT`
 * `LEDGERFLOW_MAX_ATTACHMENT_MB`
 
-Legacy aliases still supported:
-
-* `EMAIL_USER`
-* `EMAIL_PASS`
-* `LEDGERFLOW_AGENT_EMAIL`
-* `LEDGERFLOW_AGENT_PASSWORD`
-* `FRONTEND_API_URL`
-* `LEDGERFLOW_FRONTEND_URL`
+### Supported Legacy Aliases
+* `EMAIL_USER` / `EMAIL_PASS`
+* `LEDGERFLOW_AGENT_EMAIL` / `LEDGERFLOW_AGENT_PASSWORD`
+* `FRONTEND_API_URL` / `LEDGERFLOW_FRONTEND_URL`
 * `LOCAL_FILE`
 
-Agents and Tools
+---
 
-1. Email Agent
+## StateGraph Nodes & Agents
 
-Responsible for fetching the latest financial email and extracting attachments.
+### 1. Supervisor (Orchestrator)
+A central supervisor node that controls graph routing. It decides which processing step to execute next and intercepts execution to route control flow factually based on state validation results.
 
-Tool Used
+### 2. Email Agent (`fetch_email`)
+Fetches the latest email body and processes incoming email attachments.
+* **Tools**: `fetch_email`
 
-* email_tool
+### 3. Preprocessing Agent (`preprocessing_tools`)
+Deterministic preprocessing layer that identifies transaction sheets and maps fields.
+* **Tools**:
+  * **Excel Reader**: Intelligently scores and selects sheets based on financial indicators (e.g. "debit", "credit", "voucher").
+  * **Field Mapper**: Maps variable source columns to canonical target schema fields.
+  * **Relational Mapper**: Asserts relational accounting structures (vouchers, accounts, etc.).
+  * **Financial Logic**: Dynamically calculates debit and credit amounts based on transaction sign fallbacks and business classifications.
 
-Output
+### 4. Extraction Agent (`extract_data`)
+Converts raw, unformatted financial tables into structured accounting JSON payloads using the Groq Llama 3.3 70B model.
+* **Tools**: `extract_data`
 
-* Email body
-* Excel attachment path
-* Raw financial content
+### 5. Validator Agent (`validate`)
+Performs rigorous structural and business logic checks.
+* **Checks**:
+  * Schema consistency
+  * Required fields
+  * Debit-credit balancing (flagging dtcd differences)
+  * Duplicate detections
 
+### 6. Re-Extraction Agent (`re_extract`)
+Automatically runs target repairs on validation failures (e.g. mismatched columns or missing elements), looping up to 5 times to self-heal extraction inaccuracies.
+* **Tools**: `re_extract_field`
 
-2. Input Agent
+### 7. UI Agent (`push_to_ui`)
+Persists outputs to local files, databases, and APIs.
+* **Actions**:
+  * Generates cleaned production-ready JSON (`verified_data.json`).
+  * Creates formatted Excel sheets (`verified_data.xlsx`).
+  * **PostgreSQL Integration**: Automatically inserts validated rows into the `ledger_transactions` table. Operates with a safety fallback that logs connection warnings and continues exporting gracefully if database is offline.
+  * Authenticates and uploads verified data to the frontend system APIs.
+* **Tools**: `save_json`, `generate_excel`, `login`, `upload_file`
 
-Acts as the preprocessing and orchestration layer before LLM extraction.
-
-This agent uses multiple deterministic tools.
-
-
-
-Excel Reader Tool
-
-Reads all Excel sheets and intelligently selects the most relevant financial transaction sheet using scoring logic.
-
-Features
-
-* Detects transaction sheets
-* Rejects master/reference sheets
-* Uses financial keywords like:
-    * debit
-    * credit
-    * voucher
-    * transaction
-    * journal
-    
-Field Mapper Tool:
-
-Standardizes inconsistent column names into a unified master schema.
-
-⸻
-
-Relational Mapper Tool
-
-Maintains accounting relationships between:
-
-* voucher entries
-* accounts
-* subaccounts
-* hierarchy structures
-
-This helps preserve double-entry accounting behavior.
-
-
-Financial Logic Tool
-
-Applies intelligent accounting rules to determine:
-
-* Debit Amount
-* Credit Amount
-
-Logic Priority
-
-1. Business Rules
-2. Account Subclass Rules
-3. Keyword Intelligence
-4. Amount Sign Fallback
-
-Extra Features
-
-* Handles bracket amounts:
-    * (5000) → -5000
-* Voucher pairing logic:
-    * 1.1 ↔ 1.2
-* Real-world accounting behavior
-
-
-3. Extraction Agent
-
-Uses Groq Llama 3.3 70B to convert processed financial rows into structured JSON.
-
-Tool Used
-
-* llm_tool
-
-Responsibilities
-
-* Extract structured financial data
-* Generate accounting-ready JSON
-* Preserve transaction relationships
-
-
-4. Validator Agent
-
-Validates extracted JSON before final processing.
-
-Validation Checks
-
-* Required fields
-* Data types
-* Empty row removal
-* Voucher balancing
-* Duplicate detection
-* Schema consistency
-
-
-5. Re-Extraction Agent
-
-Handles extraction failures.
-
-If validation fails:
-
-* Re-runs extraction
-* Attempts correction
-* Retries up to 5 times
-
-This improves reliability and reduces hallucinations from LLM output.
-
-
-
-6. UI Agent
-
-Responsible for generating final Excel output and pushing data to frontend/dashboard APIs.
-
-Features
-
-* Generates final Excel file
-* Removes internal fields
-* Renames columns for UI readability
-* Pushes data to frontend APIs
-
-
+### 8. Notification Agent (`notification`)
+Dispatches failure notifications to manager email addresses or alerts to the UI dashboard in case of double-entry imbalance or unrecoverable processing failures.
+* **Tools**: `push_validation_alert`, `send_failure_notification`
