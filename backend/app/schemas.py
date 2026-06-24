@@ -73,6 +73,9 @@ class TransactionRowRead(BaseModel):
     sub_class: str
     country: str
     region: str
+    dtcd_difference: float | None = None
+    validation_messages: str | None = None
+    repairs_applied: str | None = None
 
 class UploadVersionRead(BaseModel):
     id: UUID

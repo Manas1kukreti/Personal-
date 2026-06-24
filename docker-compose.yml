@@ -34,6 +34,7 @@ services:
       - "8000:8000"
     volumes:
       - backend_uploads:/app/storage/uploads
+      - ../combined (1st project)/agentic-ai-pipeline:/app/agentic-ai-pipeline
     depends_on:
       postgres:
         condition: service_healthy

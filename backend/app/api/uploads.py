@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date, datetime
+import math
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -13,11 +14,11 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.security import require_roles
 from app.db.session import AsyncSessionLocal, get_db
-from app.models import AuditAction, Review, ReviewStatus, Submission, TransactionRow, User, UserRole
+from app.models import Alert, AuditAction, Review, ReviewStatus, Submission, TransactionRow, User, UserRole
 from app.schemas import TransactionRowRead, UploadPreview, UploadSummary, UploadVersionRead
 from app.services.audit import log_action
 from app.services.email import manager_submission_link, send_email
-from app.services.excel_parser import infer_amount, infer_date, infer_text, parse_entry_no, parse_spreadsheet, validate_extension
+from app.services.excel_parser import infer_amount, infer_date, infer_number, infer_text, parse_entry_no, parse_spreadsheet, validate_extension
 from app.services.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
@@ -35,6 +36,9 @@ GL_COLUMNS = [
     "sub_class",
     "country",
     "region",
+    "dtcd_difference",
+    "validation_messages",
+    "repairs_applied",
 ]
 
 
@@ -42,10 +46,11 @@ GL_COLUMNS = [
 async def create_upload(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    use_agents: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee)),
 ) -> UploadPreview:
-    return await save_upload(file=file, db=db, user=user, background_tasks=background_tasks)
+    return await save_upload(file=file, db=db, user=user, background_tasks=background_tasks, use_agents=use_agents)
 
 
 @router.post("/{submission_id}/reupload", response_model=UploadPreview)
@@ -53,6 +58,7 @@ async def reupload_submission(
     submission_id: UUID,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    use_agents: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_roles(UserRole.employee)),
 ) -> UploadPreview:
@@ -74,7 +80,7 @@ async def reupload_submission(
     )
     if original.version_number < latest_version:
         raise HTTPException(status_code=409, detail="A newer version has already been submitted")
-    return await save_upload(file=file, db=db, user=user, background_tasks=background_tasks, parent_submission=original)
+    return await save_upload(file=file, db=db, user=user, background_tasks=background_tasks, parent_submission=original, use_agents=use_agents)
 
 
 async def save_upload(
@@ -84,6 +90,7 @@ async def save_upload(
     user: User,
     background_tasks: BackgroundTasks,
     parent_submission: Submission | None = None,
+    use_agents: bool = False,
 ) -> UploadPreview:
     settings = get_settings()
     try:
@@ -157,6 +164,7 @@ async def save_upload(
         path,
         settings.max_preview_rows,
         AuditAction.reupload_submitted if parent_submission else AuditAction.upload_created,
+        use_agents,
     )
 
     return UploadPreview(
@@ -183,6 +191,7 @@ async def process_upload_file(
     path: Path,
     max_preview_rows: int,
     audit_action: AuditAction,
+    use_agents: bool = False,
 ) -> None:
     async with AsyncSessionLocal() as db:
         submission = (
@@ -195,6 +204,61 @@ async def process_upload_file(
         user = await db.get(User, user_id)
         if not submission or not user:
             return
+
+        if use_agents:
+            try:
+                import sys
+                import os
+                import shutil
+                from dotenv import load_dotenv
+
+                # 1. Add agentic pipeline folder to python path
+                pipeline_path = "/app/agentic-ai-pipeline"
+                if pipeline_path not in sys.path:
+                    sys.path.insert(0, pipeline_path)
+
+                # 2. Load agentic-ai-pipeline env
+                env_file = os.path.join(pipeline_path, ".env")
+                if os.path.exists(env_file):
+                    load_dotenv(env_file)
+
+                # 3. Set up environment variables for the agentic run
+                os.environ["LOCAL_FILE"] = str(path)
+                os.environ["SKIP_HTTP_UPLOAD"] = "true"
+
+                # Ensure DATABASE_URL is psycopg2-friendly (no +asyncpg)
+                orig_db_url = os.getenv("DATABASE_URL")
+                if orig_db_url and "postgresql+asyncpg" in orig_db_url:
+                    os.environ["DATABASE_URL"] = orig_db_url.replace("postgresql+asyncpg", "postgresql")
+
+                # Set unique output files to prevent concurrency conflicts
+                output_excel = os.path.join(str(path.parent), f"{submission.id}_verified.xlsx")
+                output_json = os.path.join(str(path.parent), f"{submission.id}_verified.json")
+                os.environ["OUTPUT_EXCEL_FILE"] = output_excel
+                os.environ["OUTPUT_JSON_FILE"] = output_json
+
+                # Import dynamic runner and run the agent
+                from ledgerflow_agent import run_ledgerflow_agent_dynamic
+                
+                result = run_ledgerflow_agent_dynamic({"retry_count": 0})
+                
+                # Restore original database url
+                if orig_db_url:
+                    os.environ["DATABASE_URL"] = orig_db_url
+
+                # Check if Excel output was generated
+                if os.path.exists(output_excel):
+                    # Copy verified excel output to replace original uploaded file path
+                    shutil.copy2(output_excel, path)
+                else:
+                    run_errors = result.get("errors", [])
+                    error_msg = run_errors[0].get("error", "AI Agent run failed to generate verified file") if run_errors else "AI Agent run did not generate verified file"
+                    raise Exception(error_msg)
+
+            except Exception as exc:
+                await db.rollback()
+                await mark_upload_parse_failed(db, submission, f"Agentic AI Pipeline failed: {exc}")
+                return
 
         try:
             parsed, row_values = await asyncio.to_thread(parse_transaction_records, path, max_preview_rows)
@@ -210,7 +274,47 @@ async def process_upload_file(
 
         try:
             db.add_all(TransactionRow(submission_id=submission.id, **values) for values in row_values)
-            submission.review_status = ReviewStatus.pending
+            
+            # Create alerts for rows with non-zero dtcd_difference
+            alerts_to_add = []
+            for row in row_values:
+                dtcd_diff = row.get("dtcd_difference")
+                if dtcd_diff is not None:
+                    try:
+                        val = float(dtcd_diff)
+                        if not math.isnan(val) and not math.isinf(val) and val != 0:
+                            # 1% tolerance check compared to amount
+                            amount = max(float(row.get("debit_amount") or 0), float(row.get("credit_amount") or 0))
+                            tolerance = 0.01 * amount
+                            if abs(val) > tolerance:
+                                entry_no = f"{row['entry_group']}.{row['entry_line']}"
+                                alert = Alert(
+                                    entry_no=entry_no,
+                                    account_code=row["account_code"],
+                                    sub_account=row["sub_account"],
+                                    difference=val,
+                                    status="FAILED",
+                                )
+                                alerts_to_add.append(alert)
+                    except (ValueError, TypeError):
+                        pass
+            
+            if alerts_to_add:
+                db.add_all(alerts_to_add)
+                await db.flush()
+                
+                # Broadcast alert notifications over WebSockets
+                from app.api.alerts import alert_to_schema
+                for alert in alerts_to_add:
+                    try:
+                        alert_schema = await alert_to_schema(alert, db)
+                        alert_payload = alert_schema.model_dump(mode="json")
+                        await ws_manager.broadcast("dashboard", "dtcd_alert", alert_payload)
+                        await ws_manager.broadcast("notifications", "dtcd_alert", alert_payload)
+                    except Exception:
+                        pass
+                        
+            submission.review_status = ReviewStatus.initiated
             await db.commit()
             await db.refresh(submission)
         except Exception as exc:
@@ -269,19 +373,20 @@ async def broadcast_upload_complete(db: AsyncSession, submission: Submission, us
     await ws_manager.broadcast("uploads", "upload_progress", {**payload, "progress": 100})
     await ws_manager.broadcast("uploads", "upload.complete", payload)
     await ws_manager.broadcast("uploads", "upload_status", payload)
-    await ws_manager.broadcast("manager", "new_upload", payload)
-    await ws_manager.broadcast("manager", "upload.new", payload)
-    await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
-    if manager:
-        await send_email(
-            manager.email,
-            "New upload pending review",
-            (
-                f"Hello {manager.full_name},\n\n"
-                f"{user.full_name} submitted {submission.file_name} for review.\n\n"
-                f"Open it here: {manager_submission_link(submission.id, manager.id)}"
-            ),
-        )
+    if submission.review_status == ReviewStatus.pending:
+        await ws_manager.broadcast("manager", "new_upload", payload)
+        await ws_manager.broadcast("manager", "upload.new", payload)
+        await ws_manager.broadcast("dashboard", "dashboard_refresh", payload)
+        if manager:
+            await send_email(
+                manager.email,
+                "New upload pending review",
+                (
+                    f"Hello {manager.full_name},\n\n"
+                    f"{user.full_name} submitted {submission.file_name} for review.\n\n"
+                    f"Open it here: {manager_submission_link(submission.id, manager.id)}"
+                ),
+            )
 
 
 @router.get("", response_model=list[UploadSummary])
@@ -314,6 +419,7 @@ async def list_uploads(
         stmt = stmt.where(Submission.user_id == user.id)
     elif user.role == UserRole.manager:
         stmt = stmt.where(User.manager_id == user.id)
+        stmt = stmt.where(Submission.review_status != ReviewStatus.initiated)
 
     submissions = (await db.execute(stmt)).all()
     return [
@@ -470,6 +576,18 @@ def gl_values_from_record(record: dict) -> dict[str, Any]:
     if raw_date is None:
         raise HTTPException(status_code=422, detail="Missing or invalid field: voucher_date")
 
+    dtcd_diff = infer_number(lowered, "dtcd_difference")
+    if dtcd_diff is None:
+        dtcd_diff = infer_number(lowered, "dtcd difference")
+
+    val_msg = infer_text(lowered, "validation_messages")
+    if val_msg is None:
+        val_msg = infer_text(lowered, "validation messages")
+
+    repairs = infer_text(lowered, "repairs_applied")
+    if repairs is None:
+        repairs = infer_text(lowered, "repairs applied")
+
     return {
         "date": raw_date.date() if hasattr(raw_date, "date") else raw_date,
         "entry_group": entry_group,
@@ -484,6 +602,9 @@ def gl_values_from_record(record: dict) -> dict[str, Any]:
         "sub_class": infer_text(lowered, "sub_class"),
         "country": infer_text(lowered, "country"),
         "region": infer_text(lowered, "region"),
+        "dtcd_difference": dtcd_diff,
+        "validation_messages": val_msg,
+        "repairs_applied": repairs,
     }
 
 
@@ -504,4 +625,67 @@ def gl_row_to_dict(row: TransactionRow) -> dict:
         "sub_class": row.sub_class,
         "country": row.country,
         "region": row.region,
+        "dtcd_difference": float(row.dtcd_difference) if row.dtcd_difference is not None else None,
+        "validation_messages": row.validation_messages,
+        "repairs_applied": row.repairs_applied,
     }
+
+
+@router.post("/{upload_id}/submit", response_model=UploadPreview)
+async def submit_upload_to_manager(
+    upload_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_roles(UserRole.employee)),
+) -> UploadPreview:
+    submission = (
+        await db.execute(
+            select(Submission)
+            .options(selectinload(Submission.user), selectinload(Submission.review))
+            .where(Submission.id == upload_id)
+        )
+    ).scalar_one_or_none()
+    
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if submission.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to submit this submission")
+    if submission.review_status != ReviewStatus.initiated:
+        raise HTTPException(status_code=400, detail="Submission is not in initiated/draft state")
+        
+    submission.review_status = ReviewStatus.pending
+    await db.commit()
+    await db.refresh(submission)
+    
+    # Trigger manager notifications and email!
+    rows_count = await db.scalar(
+        select(func.count()).select_from(TransactionRow).where(TransactionRow.submission_id == upload_id)
+    )
+    await broadcast_upload_complete(db, submission, user, rows_count or 0)
+    
+    # Return updated preview
+    rows = (
+        await db.execute(
+            select(TransactionRow)
+            .where(TransactionRow.submission_id == upload_id)
+            .order_by(TransactionRow.date, TransactionRow.entry_group, TransactionRow.entry_line)
+            .limit(get_settings().max_preview_rows)
+        )
+    ).scalars().all()
+    
+    return UploadPreview(
+        upload_id=submission.id,
+        sub_id=submission.sub_id,
+        filename=submission.file_name,
+        status=submission.review_status.value,
+        version_number=submission.version_number,
+        parent_submission_id=submission.parent_submission_id,
+        total_rows=rows_count or 0,
+        total_columns=len(GL_COLUMNS),
+        created_at=submission.uploaded_at,
+        reviewed_at=submission.review.reviewed_at if submission.review else None,
+        columns=GL_COLUMNS,
+        detected_types={},
+        validation={"valid": True, "schema": "general_ledger", "currency": "INR"},
+        preview_rows=[gl_row_to_dict(row) for row in rows],
+        version_history=await get_version_history(db, submission),
+    )

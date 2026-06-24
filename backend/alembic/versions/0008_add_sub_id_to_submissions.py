@@ -21,7 +21,7 @@ def upgrade() -> None:
         WITH numbered AS (
             SELECT id, ROW_NUMBER() OVER (ORDER BY uploaded_at) AS row_number
             FROM submissions
-            WHERE review_status != 'parse_failed'
+            WHERE review_status::text != 'parse_failed'
         )
         UPDATE submissions
         SET sub_id = numbered.row_number

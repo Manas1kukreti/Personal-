@@ -23,6 +23,7 @@ class UserRole(str, enum.Enum):
 
 class ReviewStatus(str, enum.Enum):
     processing = "processing"
+    initiated = "initiated"
     pending = "pending"
     approved = "approved"
     declined = "declined"
@@ -151,6 +152,9 @@ class TransactionRow(Base):
     # Geography
     country: Mapped[str] = mapped_column(String(100), nullable=False)
     region: Mapped[str] = mapped_column(String(100), nullable=False)
+    dtcd_difference: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    validation_messages: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    repairs_applied: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     submission: Mapped["Submission"] = relationship(back_populates="transaction_rows")
 

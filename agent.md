@@ -59,7 +59,7 @@ Employees upload `.xlsx` or `.csv` files that match a fixed general-ledger trans
 ### Backend
 - `backend/app/main.py` — FastAPI app, CORS, routers, startup seeded accounts, health endpoint
 - `backend/app/api/auth.py` — Registration, login, refresh, logout, current user, account settings, password change
-- `backend/app/api/uploads.py` — Upload parsing, re-upload flow, row persistence, listing, preview, version history, access checks
+- `backend/app/api/uploads.py` — Upload parsing, re-upload flow, row persistence, listing, preview, version history, access checks, and integration with the Agentic AI Pipeline via optional `use_agents` parameter
 - `backend/app/api/comments.py` — Submission comment APIs, WebSocket broadcast, email notification
 - `backend/app/api/approvals.py` — Manager review actions (approve/reject/request-reupload), review-link token verification
 - `backend/app/api/alerts.py` — DTCD validation alerts, alert creation, read/mark-all, optional transaction enrichment
@@ -86,7 +86,7 @@ Employees upload `.xlsx` or `.csv` files that match a fixed general-ledger trans
 
 ### Frontend
 - **Landing Page** — Public hero with CTA, auto-redirects authenticated users
-- **Upload Center** — Drag-drop upload with real-time progress, transaction preview with type filters
+- **Upload Center** — Drag-drop upload with real-time progress, transaction preview with type filters, and a toggle switch to run the Agentic AI Pipeline
 - **Submissions Page** — History table with kebab actions (comments modal, transactions modal, re-upload button)
 - **Alerts Page** — DTCD validation alerts, searchable/filterable UI, transaction enrichment modals, bulk read actions
 - **Manager Dashboard** — Approval queue left panel, KPI right panel, comment thread, review actions
@@ -94,6 +94,7 @@ Employees upload `.xlsx` or `.csv` files that match a fixed general-ledger trans
 - **Audit Page** — Searchable audit log with user/action type filters, timestamp tracking
 - **Settings Page** — Profile name update, password change, session management
 - **Real-time Updates** — WebSocket-driven comment threads, approval notifications, KPI refreshes
+- **Automatic Viewport Scaling** — Dynamically scales the entire application layout based on screen size for desktop viewports (>1024px) targeting a base layout width of 1536px. It utilizes a CSS transform scale applied to the `#root` element combined with dynamic width/height calculations, ensuring a seamless, responsive layout that fits the screen without leaving white margin gaps on Safari or Chrome, and maintains natural document scrolling (vertical scrollbars remain fully functional across all browsers).
 
 ### Backend
 - **Audit API** — Immutable log of all actions (uploads, approvals, comments, assignments, logins)
@@ -102,6 +103,7 @@ Employees upload `.xlsx` or `.csv` files that match a fixed general-ledger trans
 - **Role Scoping** — Employees see own data, managers see assigned team data, admins see all
 - **Version History** — Full re-upload chain tracking with parent_submission_id
 - **Token Verification** — Manager review link validation with session checks
+- **Agentic AI Pipeline Integration** — Dynamic invocation of the sibling `agentic-ai-pipeline` graph during uploads using an optional `use_agents` toggle. Bypasses HTTP upload loopback and customizes output paths to prevent concurrency conflicts, storing clean/repaired transactions directly under the submission ID.
 
 ## Local Development
 
@@ -214,10 +216,10 @@ The frontend preserves query strings through login. When a manager opens a token
 ### Core Tables
 - `users` — Full name, email, hashed password, role (employee/manager/admin), optional manager_id
 - `refresh_tokens` — Hashed refresh tokens for cookie-based token refresh
-- `submissions` — Upload metadata, file path, original filename, version_number, optional parent_submission_id, review_status
+- `submissions` — Upload metadata, file path, original filename, version_number, optional parent_submission_id, review_status (`processing`, `initiated` (draft), `pending`, `approved`, `declined`, `parse_failed`, `reupload_requested`)
 - `submission_comments` — Discussion thread entries with submission_id, user_id, message, timestamp
 - `reviews` — Manager decision per submission (approve/reject/reupload_requested), timestamp
-- `transaction_rows` — Parsed GL transaction records: entry_no, account_code, sub_account, debit/credit amounts, status, timestamp
+- `transaction_rows` — Parsed GL transaction records: entry_no, account_code, sub_account, debit/credit amounts, status, timestamp, dtcd_difference, validation_messages, repairs_applied
 - `alerts` — DTCD validation failures: entry_no, account_code, difference, status, read_at, optional transaction_detail enrichment
 - `audit_logs` — Immutable log: user_id, action, target_type, target_id, detail, timestamp
 
@@ -242,6 +244,11 @@ The frontend preserves query strings through login. When a manager opens a token
 - `country` (aliases: Country, Ctry)
 - `region` (aliases: Region, Rgn)
 
+**AI Agent Pipeline Enrichment Columns (optional):**
+- `dtcd_difference` / `dtcd difference` (Debit-Credit Transaction Difference)
+- `validation_messages` / `validation messages` (AI pipeline validation/warning notes)
+- `repairs_applied` / `repairs applied` (Specific repair action done by the agent)
+
 **Validation Rules:**
 - Reject empty files, unsupported extensions, oversized files
 - Require all columns; normalize aliases
@@ -249,6 +256,7 @@ The frontend preserves query strings through login. When a manager opens a token
 - Each row must have debit XOR credit (not both, not neither)
 - Amounts must be numeric
 - Date must be parsable
+- **DTCD Tolerance Check**: A validation alert is generated in the Manager's Validation Alerts page only if the absolute value of the debit-credit difference (`dtcd_difference`) exceeds a 1% tolerance threshold compared to the transaction amount (calculated as: `abs(dtcd_difference) > 0.01 * max(debit_amount, credit_amount)`).
 
 ## API Reference
 
@@ -264,11 +272,12 @@ The frontend preserves query strings through login. When a manager opens a token
 - `POST /auth/change-password` — Change password
 
 ### Uploads
-- `POST /uploads` — Upload file (employee only)
+- `POST /uploads` — Upload file (employee only). File is parsed and saved under `initiated` (draft) status.
 - `GET /uploads` — List user's submissions
 - `GET /uploads/{upload_id}` — Get submission details
 - `GET /uploads/{upload_id}/transactions` — Get all transaction rows for submission
 - `POST /uploads/{submission_id}/reupload` — Submit re-upload (employee only)
+- `POST /uploads/{upload_id}/submit` — Finalize and submit draft to manager, transitioning it from `initiated` to `pending` status (employee only)
 
 ### Comments
 - `GET /submissions/{submission_id}/comments` — Fetch thread
@@ -303,13 +312,16 @@ The frontend preserves query strings through login. When a manager opens a token
 Upload:
 
 - Only employees can upload through `/api/uploads`.
-- Upload creates a submission, persists typed transaction rows after parsing, and moves the submission into manager review when parsing succeeds.
-- If an employee has a manager and email is enabled, the manager receives a review link.
+- Upload creates a submission, persists typed transaction rows after parsing, and sets the submission status to `initiated` (draft).
+- The employee can preview the parsed/cleaned data in the Upload Center and must click "Approve & Submit to Manager" (`POST /uploads/{upload_id}/submit`) to promote the submission status to `pending`.
+- Once promoted to `pending`, the submission moves into manager review, triggers real-time WebSocket notifications, and sends review links to the assigned manager (if email is enabled).
+- Rows with non-zero `dtcd_difference` exceeding the 1% tolerance threshold generate validation alerts which are pushed directly to the manager's Validation Alerts view.
 
 Review:
 
 - Only the assigned manager can review a submission.
 - Only pending submissions can be reviewed.
+- Managers only see submissions in their queue that have been promoted to a non-draft state (i.e. review_status is not `initiated`). Drafts remain hidden from their workspace until submitted by the employee.
 - Approve does not require thread feedback.
 - Reject and Request Re-upload require the manager to have added at least one comment in the submission thread first.
 - Review actions create a `reviews` row and update `submissions.review_status`.
@@ -372,6 +384,8 @@ The broadcaster is process-local. Multi-instance deployments need a shared bus s
 - Alert transaction enrichment must fail soft for legacy/simple `entry_no` values; not every alert entry number has the dotted `group.line` shape.
 - Email sending is best-effort and disabled unless configured.
 - The current WebSocket manager is in memory and single-process only.
+- **Automatic Viewport Scaling**: Implemented globally inside `main.jsx` and `styles.css`. It dynamically listens to window resize events on desktop screens (>1024px) and calculates a scale factor targeting a 1536px width layout. The scale is set as a CSS custom variable `--app-scale` on the document root. The React `#root` element is scaled using a CSS transform (`transform: scale(var(--app-scale))`) with adjusted dimensions (`calc(100% / var(--app-scale))`) to fit the viewport width exactly, while letting the page flow naturally to preserve native vertical scrolling.
+- **Table Responsive Containment**: Restructured `.data-table-card` and `.data-table-scroll` in `styles.css` with `max-width: 100%` and `overflow-x: auto` to contain wide data previews (such as the 10-column general ledger table). This prevents tables from horizontally stretching parent containers beyond the client viewport boundaries and ensures elements like topbars and action buttons remain fully visible on the screen, while letting columns scroll inside the card.
 
 ## Verification Commands
 
