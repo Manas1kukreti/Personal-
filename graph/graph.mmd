@@ -1,0 +1,37 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	supervisor(supervisor)
+	fetch_email(fetch_email)
+	preprocessing_tools(preprocessing_tools)
+	extract_data(extract_data)
+	validate(validate)
+	re_extract(re_extract)
+	push_to_ui(push_to_ui)
+	notification(notification)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> supervisor;
+	extract_data --> supervisor;
+	fetch_email --> supervisor;
+	preprocessing_tools --> supervisor;
+	push_to_ui -.-> __end__;
+	push_to_ui -.-> notification;
+	re_extract --> supervisor;
+	supervisor -.-> extract_data;
+	supervisor -.-> fetch_email;
+	supervisor -.-> notification;
+	supervisor -.-> preprocessing_tools;
+	supervisor -.-> push_to_ui;
+	supervisor -.-> re_extract;
+	supervisor -.-> validate;
+	validate -.-> notification;
+	validate -.-> push_to_ui;
+	validate -.-> re_extract;
+	notification --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

@@ -1,35 +1,60 @@
-env
-env/
-.venv/
+# Environment files
 .env
-__pycache__/
-*.py[cod]
-node_modules/
-dist/
-.vite/
-storage/
-.DS_Store
-
 .env.*
 !.env.example
-
 venv/
 env/
+ENV/
+.venv/
+backend/.venv/
+frontend/node_modules/
+node_modules/
 
-build/
-outputs/
-logs/
-*.log
-
-.vscode/
-.idea/
-
-Thumbs.db
-
-*.db
-*.sqlite3
-
+# Python cache and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 
+# Build and distribution output
+dist/
+build/
+.vite/
+frontend/dist/
+backend/dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Project scratch and generated artifacts
+scratch/
+storage/
+outputs/
+attachments/
+verified_data.json
+verified_data.xlsx
+ledgerflow_agent/runtime_memory.json
+ledgerflow_agent/memory_archive.jsonl
+
+# Local data files
+*.db
+*.sqlite3
+*.sqlite
+
+# Secrets and certificates
 *.pem
 *.key

@@ -1,0 +1,246 @@
+workflow:
+  max_retries: 5
+  excel_row_limit: 14
+  structured_data_required_fields:
+    - voucher_date
+    - debit_amount
+    - credit_amount
+
+agents:
+  supervisor:
+    name: LUNA
+    full_name: LedgerFlow Universal Node Analyst
+    version: "2.0"
+    domain: Finance & Accounting — General Ledger Automation
+    role: >
+      Senior Financial Data Orchestrator embedded in the automated accounting
+      pipeline. LUNA receives raw extracted transaction data, evaluates strict
+      debit-credit balancing rules, reviews JSON schema validation reports, and
+      autonomously routes the workflow to repair, alert, or finalize the ledger entry.
+    goal: >
+      Ensure absolute data integrity for every financial transaction before it hits
+      the UI dashboard. LUNA must classify validation errors, decide if a transaction
+      can be autonomously repaired (up to 5 retries) or if it requires a manual
+      human review, and route the StateGraph accordingly without relying on
+      hardcoded static logic.
+    backstory: >
+      LUNA was engineered after the accounting team grew tired of manual data entry
+      errors and rigid, brittle ETL pipelines that crashed on edge cases. LUNA
+      understands the sanctity of double-entry accounting. It never ignores a balance
+      difference, never fabricates missing amounts, and explicitly flags unrecoverable
+      errors for human intervention. Every routing decision LUNA makes is traceable
+      and based purely on the current workflow state.
+    constraints:
+      - Factual routing only — decisions must be based strictly on validation_result
+      - Never override a debit-credit mismatch; always route to notification/UI with alert
+      - Adhere strictly to the maximum retry count (max_retries = 5)
+      - Returns ONLY the exact name of the next valid StateGraph node (e.g., 'ui', 'repair', 'notification')
+      - Governed by standard accounting principles (GAAP/IFRS principles of balancing)
+  email:
+    role: "Fetch source data from email and attachments."
+    performs:
+      - "Read body text."
+      - "Save attachments."
+      - "Extract PDF text and preprocess Excel files."
+  input:
+    role: "Normalize raw files before LLM extraction or validation."
+    performs:
+      - "Select the best transaction sheet."
+      - "Map fields."
+      - "Clean values."
+      - "Apply relation mapping and financial logic."
+  extraction:
+    role: "Convert unstructured text into structured transaction JSON."
+    performs:
+      - "Use Groq LLM only when structured data is not already present."
+  validation:
+    role: "Validate schema, accounting rules, and debit-credit balancing."
+    performs:
+      - "Identify normal errors that can be repaired."
+      - "Separate balance differences that need frontend alerting."
+  re_extraction:
+    role: "Repair specific invalid fields without rerunning the full pipeline."
+    performs:
+      - "Patch failed fields."
+      - "Backtrack when field repair fails."
+  ui:
+    role: "Persist valid output and send it to the frontend."
+    performs:
+      - "Generate Excel and JSON output."
+      - "Push records to the dashboard API."
+  notification:
+    role: "Notify the frontend when manual review is required."
+    performs:
+      - "Push debit-credit difference alerts."
+      - "Mark unrecoverable validation failures for review."
+
+excel_reader:
+  transaction_keywords:
+    - voucher
+    - debit
+    - credit
+    - amount
+    - balance
+    - transaction
+    - journal
+    - posting
+    - entry
+    - date
+    - dr
+    - cr
+    - ledger
+    - narration
+  non_transaction_keywords:
+    - account type
+    - opening balance
+    - parent account
+    - group
+    - subcategory
+    - mapping
+    - foreign key
+    - lookup
+    - master
+    - chart of accounts
+
+field_mapping:
+  date: voucher_date
+  voucher date: voucher_date
+  transaction date: voucher_date
+  entryno: voucher_number
+  entry no: voucher_number
+  voucher no: voucher_number
+  voucher number: voucher_number
+  voucher type: voucher_type
+  details: particulars
+  description: particulars
+  narration: narration
+  amount: amount
+  debit: debit_amount
+  dr: debit_amount
+  credit: credit_amount
+  cr.: credit_amount
+  account_key: account_key
+  territory_key: territory_key
+  account: account
+  subaccount: subaccount
+  account name: sub_account
+  class: account_class
+  subclass: account_subclass
+  country: country
+  region: region
+  balance: balance
+  currency: currency
+  branch: branch
+  invoice_number: invoice_number
+  invoice no: invoice_number
+  reference: reference_number
+  party_name: party_name
+  gst_number: gst_number
+  cost_center: cost_center
+
+relation_mapping:
+  account_key:
+    sheet: "Chart of Accounts"
+    lookup_column: account_key
+    fields:
+      account: account
+      subaccount: subaccount
+      class: account_class
+      subclass: account_subclass
+  territory_key:
+    sheet: "Territory"
+    lookup_column: territory_key
+    fields:
+      country: country
+      region: region
+
+financial_logic:
+  business_rules:
+    - particulars: "cost of sales"
+      account_or_subaccount: "inventory"
+      rule: credit
+    - particulars: "cost of sales"
+      account_or_subaccount: "cost of sales"
+      rule: debit
+    - particulars: "credit sales"
+      account_or_subaccount: "sales"
+      rule: credit
+    - particulars: "credit sales"
+      account_or_subaccount: "trade receivables"
+      rule: debit
+    - particulars: "credit sales"
+      account_or_subaccount: "receivables"
+      rule: debit
+    - particulars: "cash sales"
+      account_or_subaccount: "sales"
+      rule: credit
+    - particulars: "cash sales"
+      account_or_subaccount: "cash at bank"
+      rule: debit
+    - particulars: "cash sales"
+      account_or_subaccount: "cash & cash equivalents"
+      rule: debit
+    - particulars: "credit expenses"
+      account_or_subaccount: "advertisements"
+      rule: debit
+    - particulars: "credit expenses"
+      account_or_subaccount: "accrued expenses"
+      rule: credit
+    - particulars: "credit expenses"
+      account_or_subaccount: "other payables"
+      rule: credit
+  subclass_rules:
+    assets: asset
+    liabilities: liability
+    owners equity: liability
+    sales: income
+    interest income: income
+    dividend income: income
+    gain/loss on sales of asset: income
+    exchange loss/gain: income
+    cost of sales: expense
+    operating expenses: expense
+    depreciation & amortization: expense
+    interest expense: expense
+    taxation: expense
+  keyword_rules:
+    asset:
+      - cash
+      - bank
+      - receivable
+      - inventory
+      - prepaid
+      - equipment
+      - property
+      - land
+      - furniture
+      - vehicle
+      - investment
+    liability:
+      - payable
+      - accrued
+      - loan
+      - equity
+      - capital
+      - retained earnings
+    income:
+      - sales
+      - sale
+      - revenue
+      - income
+      - gain
+    expense:
+      - expense
+      - cost of sales
+      - salary
+      - rent
+      - utilities
+      - advertisement
+      - travel
+      - depreciation
+      - tax
+  rule_priority:
+    liability: 0
+    asset: 1
+    income: 2
+    expense: 3
