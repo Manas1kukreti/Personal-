@@ -1,0 +1,101 @@
+# Azure DevOps pipeline for LedgerFlow
+#
+# This pipeline validates the repository and produces a frontend build artifact.
+# It does not deploy anywhere yet. Add a deployment stage after you decide the
+# Azure target (App Service, Container Apps, Static Web Apps, etc.).
+
+trigger:
+  branches:
+    include:
+      - main
+      - master
+
+pr:
+  branches:
+    include:
+      - "*"
+
+variables:
+  pythonVersion: "3.11"
+  nodeVersion: "20.x"
+  frontendDir: "frontend"
+  backendDir: "backend"
+  frontendApiBaseUrl: "http://localhost:8000"
+  testResultsDir: "$(Build.SourcesDirectory)/test-results"
+
+stages:
+  - stage: Validate
+    displayName: Validate frontend, backend, and pipeline code
+    jobs:
+      - job: BackendAndPipeline
+        displayName: Backend and pipeline checks
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          - task: UsePythonVersion@0
+            displayName: Use Python $(pythonVersion)
+            inputs:
+              versionSpec: "$(pythonVersion)"
+              addToPath: true
+
+          - script: |
+              python -m pip install --upgrade pip setuptools wheel
+            displayName: Upgrade pip tooling
+
+          - script: |
+              python -m pip install -r "$(backendDir)/requirements.txt"
+              python -m pip install PyYAML==6.0.2 langchain-core==0.3.86 httpx==0.27.0 pytest==8.3.4 pytest-asyncio==1.4.0 pytest-mock==3.15.1
+            displayName: Install Python dependencies
+
+          - script: |
+              python -m compileall "$(backendDir)/app" ledgerflow_agent agents tools main.py config_loader.py
+            displayName: Compile Python sources
+
+          - script: |
+              mkdir -p "$(testResultsDir)"
+              pytest -m "not slow" --junitxml="$(testResultsDir)/backend-pipeline.xml"
+            displayName: Run backend and pipeline tests
+            env:
+              PYTHONPATH: "$(Build.SourcesDirectory)"
+              PYTHONUNBUFFERED: "1"
+
+          - task: PublishTestResults@2
+            displayName: Publish backend test results
+            condition: always()
+            inputs:
+              testResultsFormat: "JUnit"
+              testResultsFiles: "$(testResultsDir)/backend-pipeline.xml"
+              testRunTitle: "LedgerFlow backend and pipeline tests"
+              failTaskOnFailedTests: true
+
+      - job: FrontendBuild
+        displayName: Frontend build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          - task: NodeTool@0
+            displayName: Use Node $(nodeVersion)
+            inputs:
+              versionSpec: "$(nodeVersion)"
+
+          - script: |
+              cd "$(frontendDir)"
+              npm ci
+            displayName: Install frontend dependencies
+
+          - script: |
+              cd "$(frontendDir)"
+              npm run build
+            displayName: Build frontend
+            env:
+              VITE_API_BASE_URL: "$(frontendApiBaseUrl)"
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish frontend dist artifact
+            inputs:
+              targetPath: "$(Build.SourcesDirectory)/frontend/dist"
+              artifact: "frontend-dist"

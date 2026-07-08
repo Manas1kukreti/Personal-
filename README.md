@@ -308,6 +308,10 @@ That means:
 
 This is the deployment automation layer. It is separate from the runtime application and separate from the agentic extraction pipeline.
 
+Pipeline definition:
+
+- `azure-pipelines.yml` - Azure DevOps CI pipeline for backend tests, pipeline checks, and frontend build output
+
 If you wire this repo into Azure DevOps, the normal stage structure is:
 
 ```mermaid
